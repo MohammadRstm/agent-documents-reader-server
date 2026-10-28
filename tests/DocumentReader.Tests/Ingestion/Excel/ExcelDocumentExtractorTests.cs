@@ -133,6 +133,7 @@ public sealed class ExcelDocumentExtractorTests
 
         Assert.Equal(DocumentStatus.TooLarge, result.Status);
         Assert.Empty(result.Chunks);
+        Assert.Contains("too large to process once uncompressed", Assert.Single(result.Warnings));
     }
 
     [Fact]

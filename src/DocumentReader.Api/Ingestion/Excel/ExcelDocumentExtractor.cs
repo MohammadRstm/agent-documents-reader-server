@@ -45,7 +45,7 @@ public sealed class ExcelDocumentExtractor(
                 case PackageSafety.TooLarge:
                     return Failed(
                         DocumentStatus.TooLarge,
-                        $"The workbook expands to too much data when unpacked (limit {SizeFormatter.Format(limits.MaxUncompressedWorkbookBytes)}) and was not processed.");
+                        "The workbook is too large to process once uncompressed (it expands beyond the allowed size or contains too many or too highly compressed parts) and was not processed.");
                 case PackageSafety.Unreadable:
                     return Failed(DocumentStatus.Corrupt, "The workbook could not be read. It may be damaged.");
             }

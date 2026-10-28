@@ -34,7 +34,7 @@ public enum DocumentStatus
     /// <summary>Recognized type but unreadable, encrypted, or not processable within the time limit.</summary>
     Corrupt,
 
-    /// <summary>Over the per-file size limit; not processed.</summary>
+    /// <summary>Over the per-file size limit, or (Excel) too large to process once uncompressed; not processed.</summary>
     TooLarge,
 }
 
