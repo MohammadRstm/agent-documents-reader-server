@@ -113,6 +113,46 @@ public sealed class TableAnalysisTests
     }
 
     [Fact]
+    public void Sum_DollarFormatWithUsdHeader_SumsAsUsd()
+    {
+        var table = SingleTable(ExcelFixtures.Xlsx(book =>
+        {
+            var sheet = book.AddWorksheet("BOQ");
+            sheet.Cell("A1").Value = "Item";
+            sheet.Cell("B1").Value = "Amount (USD)";
+            sheet.Cell("A2").Value = "Pump";
+            sheet.Cell("B2").Value = 1250.5;
+            sheet.Cell("B2").Style.NumberFormat.Format = "\"$\"#,##0.00";
+            sheet.Cell("A3").Value = "Valve";
+            sheet.Cell("B3").Value = 749.5;
+            sheet.Cell("B3").Style.NumberFormat.Format = "\"$\"#,##0.00";
+        }));
+
+        var result = Aggregate(table, "Amount (USD)", AggregateOperation.Sum, [], ItemsOnly);
+
+        Assert.Null(result.Error);
+        Assert.Equal("USD", result.Currency);
+        Assert.Equal(2000m, result.Total!.Result);
+        Assert.Empty(table.Warnings);
+    }
+
+    [Fact]
+    public void Sum_PoundFormatWithEuroHeader_IsRefused()
+    {
+        var table = SingleTable(ExcelFixtures.Xlsx(book =>
+        {
+            var sheet = book.AddWorksheet("Prices");
+            sheet.Cell("A1").Value = "Item";
+            sheet.Cell("B1").Value = "Price (EUR)";
+            sheet.Cell("A2").Value = "Pump";
+            sheet.Cell("B2").Value = 100;
+            sheet.Cell("B2").Style.NumberFormat.Format = "£#,##0.00";
+        }));
+
+        Assert.Contains("ambiguous", Aggregate(table, "Price (EUR)", AggregateOperation.Sum, [], ItemsOnly).Error);
+    }
+
+    [Fact]
     public void Count_IgnoresCurrency()
     {
         var table = SingleTable(ExcelFixtures.Xlsx(book =>
