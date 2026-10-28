@@ -2,7 +2,7 @@
 
 ASP.NET Core Web API (.NET 10) for the AI document-analysis assessment. Users upload PDF and Excel documents into an anonymous session and ask questions about them; answers cite the source page or cell range.
 
-Status: work in progress. Implemented so far: sessions, the shared error format, rate limiting, PDF and Excel upload and extraction, keyword search, the agent tools and evidence lookup (`GET /api/evidence/{id}`). Chat is not implemented yet.
+Status: work in progress. Implemented so far: sessions, the shared error format, rate limiting, PDF and Excel upload and extraction, keyword search, the agent tools, evidence lookup, and streaming chat with validated citations.
 
 The API contract shared with the React client is in [`docs/api-contract.md`](docs/api-contract.md).
 
@@ -28,7 +28,7 @@ The key is read from configuration as `Anthropic:ApiKey`. For local development 
 dotnet user-secrets set "Anthropic:ApiKey" "<your-key>" --project src/DocumentReader.Api
 ```
 
-User Secrets are only loaded in the `Development` environment. Elsewhere, use the environment variable `Anthropic__ApiKey`.
+User Secrets are only loaded in the `Development` environment. Elsewhere, use the environment variable `Anthropic__ApiKey`. Without a key the API still runs (sessions, uploads, evidence), and `POST /api/chat` returns `502 provider_unavailable`.
 
 ## Configuration
 
@@ -60,7 +60,8 @@ User Secrets are only loaded in the `Development` environment. Elsewhere, use th
 | `Sessions` | `IdleTimeoutMinutes` | 60 | Session expires after this long without a request |
 | `Sessions` | `CleanupIntervalSeconds` | 60 | How often expired sessions are removed |
 | `Anthropic` | `Model` | `claude-sonnet-5-5` | Claude model ID |
-| `Anthropic` | `Effort` | `medium` | Model effort level |
+| `Anthropic` | `Effort` | `medium` | Model effort level (`low`, `medium`, `high`, `xhigh`, `max`) |
+| `Anthropic` | `MaxOutputTokens` | 16000 | Output token cap per model request (thinking included) |
 
 ## Document upload
 
@@ -98,6 +99,18 @@ The backend gives the model seven read-only tools (`src/DocumentReader.Api/Agent
 
 Tool arguments are validated strictly in code: unknown properties, wrong types, out-of-range values and unknown IDs are rejected with an error result. Document, table and evidence IDs are only resolved inside the caller's session. Results are size-limited.
 
+## Chat
+
+`POST /api/chat` with `{ "question": "..." }` (JSON, 1 to 4000 characters) answers from the session's documents and streams Server-Sent Events: `status`, `delta`, then `citations` and `done`, or `error`. Request problems (no session, non-JSON body, invalid question, missing API key, a question already running in the session) are normal JSON error responses sent before the stream starts. `GET /api/chat/history` returns the conversation.
+
+- **Agent loop.** The model (`claude-sonnet-5-5` at effort `medium`, adaptive thinking) calls the seven tools above, and the backend runs them against the session.
+  - Each question allows up to `MaxModelRoundTripsPerQuestion` (8) model requests and `QuestionTimeoutSeconds` (120). The last quarter of the time is kept for the final answer.
+  - When a limit is hit, one last request with tool use disabled answers from the evidence gathered so far, and the answer is marked `incomplete: true`.
+  - Disconnecting the client cancels the work.
+- **Untrusted content.** Tool output is wrapped in `<document_data>` tags and the system prompt tells the model it is data only. Document text cannot close those tags, because the JSON escapes `<` and `>`. The real protection is in code: tools are read-only, allowlisted, validated and session-scoped.
+- **Citations.** The model cites evidence as `[E12]`. Before the final answer is sent, every marker is checked: it must exist in the session and must have been returned to the model by a tool (or cited in an earlier answer). Other markers are removed. Citation details come from stored evidence, never from the model.
+- **History.** The last 10 question/answer pairs are sent to the model as plain text. Questions that fail are not stored.
+
 ## Sessions
 
 `POST /api/sessions` returns a 43-character random session ID. Every other endpoint requires it in the `X-Session-Id` header. Sessions and all their data live in memory only: they are removed after the idle timeout and lost when the process restarts. A session ID is an unguessable bearer value, not user authentication.
@@ -109,3 +122,11 @@ dotnet test tests/DocumentReader.Tests/DocumentReader.Tests.csproj
 ```
 
 The tests are deterministic and need no API key or network access. Legacy .xls fixtures are generated with NPOI, a test-only dependency whose binary package requires accepting its OSMF EULA (accepted by the project owner, see `tests/DocumentReader.Tests/DocumentReader.Tests.csproj`). CI (`.github/workflows/ci.yml`) restores, builds with warnings as errors, and runs this test project only.
+
+### Live evals (opt-in)
+
+`tests/DocumentReader.Evals` asks the real model a handful of questions over synthetic documents with known answers: an exact BOQ total, a milestone date, an unanswerable question, an injection attempt inside a document, and a follow-up question. The evals are skipped unless an API key is configured (User Secrets or `Anthropic__ApiKey`). They call the Claude API, so they cost money. CI never runs them.
+
+```bash
+dotnet test tests/DocumentReader.Evals/DocumentReader.Evals.csproj
+```
