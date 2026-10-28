@@ -21,7 +21,8 @@ public sealed class ChatService(
 
     /// <summary>
     /// Checks that a question can start and claims the session for it. Throws <see cref="ApiException"/>
-    /// (502 provider_unavailable or 409 question_in_progress) before any stream is opened.
+    /// before any stream is opened, in this order: 502 provider_unavailable, 409 documents_processing,
+    /// 409 no_documents, 409 question_in_progress.
     /// </summary>
     public IDisposable BeginQuestion(Session session)
     {
@@ -31,6 +32,22 @@ public sealed class ChatService(
                 StatusCodes.Status502BadGateway,
                 ErrorCodes.ProviderUnavailable,
                 "The AI provider is not configured on the server, so questions cannot be answered right now.");
+        }
+
+        if (session.Uploads.InProgress > 0)
+        {
+            throw new ApiException(
+                StatusCodes.Status409Conflict,
+                ErrorCodes.DocumentsProcessing,
+                "Documents are still being processed. Wait until processing finishes, then ask again.");
+        }
+
+        if (session.Documents.ContentDocumentCount == 0)
+        {
+            throw new ApiException(
+                StatusCodes.Status409Conflict,
+                ErrorCodes.NoDocuments,
+                "Upload at least one readable PDF or Excel file before asking a question.");
         }
 
         return session.Conversation.TryBeginQuestion() ?? throw new ApiException(

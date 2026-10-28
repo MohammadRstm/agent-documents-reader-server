@@ -23,6 +23,10 @@ public sealed class DocumentsController(
     public async Task<IActionResult> Upload(CancellationToken cancellationToken)
     {
         var session = HttpContext.GetCurrentSession();
+
+        // Counted from before the body is read until the response, including failures and cancellation,
+        // so chat can refuse questions while documents are still arriving.
+        using var uploadInProgress = session.Uploads.Begin();
         var files = await uploadFormReader.ReadFilesAsync(Request, cancellationToken);
         var documents = await ingestionService.IngestAsync(session, files, cancellationToken);
         return Ok(ToResponse(documents));

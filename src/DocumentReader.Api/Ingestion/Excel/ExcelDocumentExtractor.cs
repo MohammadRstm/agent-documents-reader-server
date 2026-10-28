@@ -43,11 +43,9 @@ public sealed class ExcelDocumentExtractor(
             switch (OpenXmlPackageInspector.CheckSafety(content, limits))
             {
                 case PackageSafety.TooLarge:
-                    return Failed(
-                        DocumentStatus.TooLarge,
-                        "The workbook is too large to process once uncompressed (it expands beyond the allowed size or contains too many or too highly compressed parts) and was not processed.");
+                    return Failed(DocumentStatus.TooLarge, UploadMessages.WorkbookTooLargeUncompressed(limits.MaxUncompressedWorkbookBytes));
                 case PackageSafety.Unreadable:
-                    return Failed(DocumentStatus.Corrupt, "The workbook could not be read. It may be damaged.");
+                    return Failed(DocumentStatus.Corrupt, UploadMessages.WorkbookDamaged);
             }
 
             if (OpenXmlPackageInspector.ContainsMacros(content))
@@ -65,12 +63,12 @@ public sealed class ExcelDocumentExtractor(
         }
         catch (InvalidPasswordException)
         {
-            return Failed(DocumentStatus.Corrupt, "The workbook is password-protected and cannot be read.");
+            return Failed(DocumentStatus.Corrupt, UploadMessages.OfficePasswordProtected);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             logger.LogInformation(exception, "Workbook could not be read.");
-            return Failed(DocumentStatus.Corrupt, "The workbook could not be read. It may be damaged.");
+            return Failed(DocumentStatus.Corrupt, UploadMessages.WorkbookDamaged);
         }
 
         return BuildResult(grid, fileType, warnings, limits);
@@ -126,7 +124,7 @@ public sealed class ExcelDocumentExtractor(
         else
         {
             status = DocumentStatus.Empty;
-            warnings.Insert(0, "The workbook contains no data.");
+            warnings.Insert(0, UploadMessages.WorkbookNoData);
         }
 
         return new ExcelExtractionResult(status, sheets, tables, chunks, LimitWarnings(warnings));

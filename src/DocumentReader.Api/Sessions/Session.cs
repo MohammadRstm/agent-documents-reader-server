@@ -23,6 +23,9 @@ public sealed class Session
     /// <summary>Uploaded documents and their evidence; only reachable through this session.</summary>
     public SessionDocuments Documents { get; } = new();
 
+    /// <summary>Upload requests of this session that are still being processed.</summary>
+    public UploadTracker Uploads { get; } = new();
+
     /// <summary>Chat history and the one-question-at-a-time guard.</summary>
     public SessionConversation Conversation { get; } = new();
 

@@ -27,6 +27,8 @@ Every non-2xx JSON response has this body:
 | 404 | `session_not_found` | Unknown or expired session |
 | 404 | `evidence_not_found` | Evidence ID not found in this session |
 | 409 | `question_in_progress` | A chat answer is already streaming for this session |
+| 409 | `documents_processing` | A question was sent while documents in this session are still being processed |
+| 409 | `no_documents` | A question was sent but the session has no readable documents |
 | 413 | `payload_too_large` | Request body or batch exceeds limits |
 | 415 | `unsupported_media_type` | Request is not `multipart/form-data` (upload) or JSON (chat) |
 | 429 | `rate_limited` | Rate limit exceeded |
@@ -113,6 +115,8 @@ No body. `201 Created`:
 ```
 Per-file problems (unsupported, corrupt, tooLarge, ...) are reported through `status` and `warnings` with `200`. Whole-request problems (no files, too many files, total size over limit) return an error response.
 
+Clients may send several upload requests for the same session in parallel; each request is processed independently. Files are parsed concurrently, bounded server-wide by configuration. While any upload request for a session is still processing, `POST /api/chat` returns `409 documents_processing`.
+
 ### `GET /api/documents`
 `200 OK`: `{ "documents": [DocumentSummary] }` (all documents in the session, upload order).
 
@@ -122,7 +126,7 @@ Per-file problems (unsupported, corrupt, tooLarge, ...) are reported through `st
 ### `POST /api/chat`
 JSON body: `{ "question": string }` (1 to 4000 characters after trimming).
 
-Validation and session errors are returned as normal JSON error responses **before** the stream starts. Otherwise the response is `200` with `Content-Type: text/event-stream`. Each event is:
+Validation, session, `documents_processing`, `no_documents` and `question_in_progress` errors are returned as normal JSON error responses **before** the stream starts. Otherwise the response is `200` with `Content-Type: text/event-stream`. Each event is:
 
 ```
 event: <name>
