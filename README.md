@@ -43,6 +43,7 @@ User Secrets are only loaded in the `Development` environment. Elsewhere, use th
 | `Limits` | `MaxFilesPerUpload` | 10 | More files in one request rejects the request (413) |
 | `Limits` | `MaxUploadRequestBytes` | 104857600 (100 MB) | Larger upload requests are rejected (413) |
 | `Limits` | `MaxDocumentsPerSession` | 20 | Readable documents (indexed or partially indexed) per session; uploads that would exceed it are rejected (413). Failed files are listed but do not count |
+| `Limits` | `MaxFailedDocumentsPerSession` | 50 | Failed files kept per session; beyond this they are reported in the upload response but not stored |
 | `Limits` | `MaxPdfPages` | 500 | Later pages are skipped; status `partiallyIndexed` |
 | `Limits` | `ExtractionTimeoutSeconds` | 30 | Time budget for extracting one file |
 | `Limits` | `MaxUncompressedWorkbookBytes` | 104857600 (100 MB) | .xlsx/.xlsm larger than this once uncompressed get `tooLarge` |

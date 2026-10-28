@@ -15,6 +15,7 @@ public sealed class DocumentsEndpointTests(DocumentsEndpointTests.SmallLimitsFac
     private const int MaxUploadRequestBytes = 200_000;
     private const int MaxFilesPerUpload = 3;
     private const int MaxDocumentsPerSession = 5;
+    private const int MaxFailedDocumentsPerSession = 2;
 
     private readonly HttpClient _client = factory.CreateClient();
 
@@ -218,6 +219,28 @@ public sealed class DocumentsEndpointTests(DocumentsEndpointTests.SmallLimitsFac
     }
 
     [Fact]
+    public async Task Upload_FailedFilesBeyondCap_AreReportedButNotStored()
+    {
+        var sessionId = await factory.CreateSessionAsync(_client);
+        var corrupt = PdfFixtures.Corrupt();
+
+        var response = await UploadAsync(sessionId, ("a.pdf", corrupt), ("b.pdf", corrupt), ("c.pdf", corrupt));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var documents = await ReadDocumentsAsync(response);
+        Assert.Equal(3, documents.Count);
+        Assert.All(documents, document => Assert.Equal("corrupt", document.GetProperty("status").GetString()));
+        var lastWarnings = documents[2].GetProperty("warnings").EnumerateArray().Select(w => w.GetString()).ToList();
+        Assert.Contains(lastWarnings, warning => warning!.Contains("not kept in the session"));
+        Assert.Equal(["a.pdf", "b.pdf"], (await ListDocumentsAsync(sessionId)).Select(d => d.GetProperty("fileName").GetString()));
+
+        // Readable files are still accepted once the failed-file cap is reached.
+        var readable = await UploadAsync(sessionId, ("good.pdf", PdfFixtures.WithPageTexts("Content")));
+        Assert.Equal("indexed", Assert.Single(await ReadDocumentsAsync(readable)).GetProperty("status").GetString());
+        Assert.Equal(3, (await ListDocumentsAsync(sessionId)).Count);
+    }
+
+    [Fact]
     public async Task Upload_WithoutFilesField_Returns400ValidationFailed()
     {
         var sessionId = await factory.CreateSessionAsync(_client);
@@ -326,6 +349,7 @@ public sealed class DocumentsEndpointTests(DocumentsEndpointTests.SmallLimitsFac
             settings["Limits:MaxUploadRequestBytes"] = MaxUploadRequestBytes.ToString();
             settings["Limits:MaxFilesPerUpload"] = MaxFilesPerUpload.ToString();
             settings["Limits:MaxDocumentsPerSession"] = MaxDocumentsPerSession.ToString();
+            settings["Limits:MaxFailedDocumentsPerSession"] = MaxFailedDocumentsPerSession.ToString();
             return settings;
         }
     }

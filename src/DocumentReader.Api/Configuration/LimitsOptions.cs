@@ -38,6 +38,13 @@ public sealed class LimitsOptions : IValidatableObject
     [Range(1, 1000)]
     public int MaxDocumentsPerSession { get; set; } = 20;
 
+    /// <summary>
+    /// Failed files (no content) kept per session. Beyond this, failed files are still reported in the
+    /// upload response but are not stored, which bounds memory for sessions that upload many bad files.
+    /// </summary>
+    [Range(0, 10_000)]
+    public int MaxFailedDocumentsPerSession { get; set; } = 50;
+
     /// <summary>Only this many pages of a PDF are extracted; later pages are skipped with a warning.</summary>
     [Range(1, 10_000)]
     public int MaxPdfPages { get; set; } = 500;

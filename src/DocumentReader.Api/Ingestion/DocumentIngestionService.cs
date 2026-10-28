@@ -42,12 +42,20 @@ public sealed class DocumentIngestionService(
         }
 
         // Atomic check-and-add: another upload to the same session may have finished meanwhile.
-        if (!session.Documents.TryAdd(ingested, limits.MaxDocumentsPerSession))
+        if (!session.Documents.TryAdd(
+                ingested, limits.MaxDocumentsPerSession, limits.MaxFailedDocumentsPerSession, out var notStoredIds))
         {
             throw SessionLimitExceeded(limits);
         }
 
-        return ingested.Select(item => item.Document).ToList();
+        // Failed files beyond the cap are still reported to the caller, with a note that they were not kept.
+        var notStoredWarning =
+            $"This file was not kept in the session because it already holds the maximum of {limits.MaxFailedDocumentsPerSession} files that could not be read.";
+        return ingested
+            .Select(item => notStoredIds.Contains(item.Document.Id)
+                ? item.Document with { Warnings = [.. item.Document.Warnings, notStoredWarning] }
+                : item.Document)
+            .ToList();
     }
 
     private static ApiException SessionLimitExceeded(LimitsOptions limits) =>
