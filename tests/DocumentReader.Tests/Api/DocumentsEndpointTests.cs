@@ -186,6 +186,24 @@ public sealed class DocumentsEndpointTests(DocumentsEndpointTests.SmallLimitsFac
     }
 
     [Fact]
+    public async Task Upload_FailedFiles_DoNotCountTowardSessionDocumentLimit()
+    {
+        var sessionId = await factory.CreateSessionAsync(_client);
+        var pdf = PdfFixtures.WithPageTexts("Content");
+        Assert.Equal(HttpStatusCode.OK, (await UploadAsync(sessionId, ("1.pdf", pdf), ("2.pdf", pdf), ("3.pdf", pdf))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await UploadAsync(sessionId, ("4.pdf", pdf), ("5.pdf", pdf))).StatusCode);
+
+        // The session now holds the maximum of 5 readable documents; failed files are still accepted.
+        var failedUpload = await UploadAsync(sessionId, ("broken.pdf", PdfFixtures.Corrupt()), ("notes.pdf", Encoding.UTF8.GetBytes("text")));
+        Assert.Equal(HttpStatusCode.OK, failedUpload.StatusCode);
+        Assert.Equal(["corrupt", "unsupported"], (await ReadDocumentsAsync(failedUpload)).Select(d => d.GetProperty("status").GetString()));
+
+        var readableUpload = await UploadAsync(sessionId, ("6.pdf", pdf));
+        await ErrorAssertions.AssertErrorAsync(readableUpload, HttpStatusCode.RequestEntityTooLarge, ErrorCodes.PayloadTooLarge);
+        Assert.Equal(7, (await ListDocumentsAsync(sessionId)).Count);
+    }
+
+    [Fact]
     public async Task Upload_WithoutFilesField_Returns400ValidationFailed()
     {
         var sessionId = await factory.CreateSessionAsync(_client);

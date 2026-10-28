@@ -32,7 +32,13 @@ public sealed class DocumentIngestionService(
         CancellationToken cancellationToken)
     {
         var limits = limitsOptions.Value;
-        EnsureWithinSessionLimit(session, files.Count, limits);
+
+        // Fail fast when the session is already full; the exact check happens when the results are added,
+        // because only files that produce content count toward the limit.
+        if (session.Documents.ContentDocumentCount >= limits.MaxDocumentsPerSession)
+        {
+            throw SessionLimitExceeded(limits);
+        }
 
         var ingested = new List<IngestedDocument>(files.Count);
         foreach (var file in files)
@@ -49,17 +55,9 @@ public sealed class DocumentIngestionService(
         return ingested.Select(item => item.Document).ToList();
     }
 
-    private static void EnsureWithinSessionLimit(Session session, int newDocumentCount, LimitsOptions limits)
-    {
-        if (session.Documents.Count + newDocumentCount > limits.MaxDocumentsPerSession)
-        {
-            throw SessionLimitExceeded(limits);
-        }
-    }
-
     private static ApiException SessionLimitExceeded(LimitsOptions limits) =>
         ApiException.PayloadTooLarge(
-            $"A session can hold at most {limits.MaxDocumentsPerSession} documents. Start a new session to upload more.");
+            $"A session can hold at most {limits.MaxDocumentsPerSession} readable documents. Start a new session to upload more.");
 
     private async Task<IngestedDocument> IngestFileAsync(IFormFile file, LimitsOptions limits, CancellationToken cancellationToken)
     {

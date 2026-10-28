@@ -74,7 +74,11 @@ public sealed record DocumentRecord(
     IReadOnlyList<SheetSummary>? Sheets,
     int TableCount,
     int ChunkCount,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings)
+{
+    /// <summary>True when content was extracted; only such documents count toward the session limit.</summary>
+    public bool HasContent => Status is DocumentStatus.Indexed or DocumentStatus.PartiallyIndexed;
+}
 
 /// <summary>A processed file with its extracted chunks and detected tables, ready to be added to a session.</summary>
 public sealed record IngestedDocument(

@@ -16,13 +16,17 @@ public sealed class SessionDocuments
     private readonly Dictionary<string, IReadOnlyList<DetectedTable>> _tables = new(StringComparer.Ordinal);
     private int _lastEvidenceNumber;
 
-    public int Count
+    /// <summary>
+    /// Documents that produced content (indexed or partially indexed). Only these count toward the
+    /// per-session document limit; failed files are kept and listed but do not use up the limit.
+    /// </summary>
+    public int ContentDocumentCount
     {
         get
         {
             lock (_lock)
             {
-                return _documents.Count;
+                return _documents.Count(document => document.HasContent);
             }
         }
     }
@@ -37,14 +41,17 @@ public sealed class SessionDocuments
     }
 
     /// <summary>
-    /// Adds the documents and gives each chunk the next evidence ID (E1, E2, ...).
-    /// Adds nothing and returns false if the session would exceed <paramref name="maxDocuments"/>.
+    /// Adds the documents and gives each chunk the next evidence ID (E1, E2, ...). Adds nothing and
+    /// returns false if the session would hold more than <paramref name="maxContentDocuments"/>
+    /// documents with content.
     /// </summary>
-    public bool TryAdd(IReadOnlyList<IngestedDocument> documents, int maxDocuments)
+    public bool TryAdd(IReadOnlyList<IngestedDocument> documents, int maxContentDocuments)
     {
         lock (_lock)
         {
-            if (_documents.Count + documents.Count > maxDocuments)
+            var contentDocuments = _documents.Count(document => document.HasContent)
+                + documents.Count(ingested => ingested.Document.HasContent);
+            if (contentDocuments > maxContentDocuments)
             {
                 return false;
             }

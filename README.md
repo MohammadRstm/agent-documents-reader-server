@@ -42,7 +42,7 @@ User Secrets are only loaded in the `Development` environment. Elsewhere, use th
 | `Limits` | `MaxFileSizeBytes` | 26214400 (25 MB) | Larger files get status `tooLarge` and are not processed |
 | `Limits` | `MaxFilesPerUpload` | 10 | More files in one request rejects the request (413) |
 | `Limits` | `MaxUploadRequestBytes` | 104857600 (100 MB) | Larger upload requests are rejected (413) |
-| `Limits` | `MaxDocumentsPerSession` | 20 | Uploads that would exceed this are rejected (413) |
+| `Limits` | `MaxDocumentsPerSession` | 20 | Readable documents (indexed or partially indexed) per session; uploads that would exceed it are rejected (413). Failed files are listed but do not count |
 | `Limits` | `MaxPdfPages` | 500 | Later pages are skipped; status `partiallyIndexed` |
 | `Limits` | `ExtractionTimeoutSeconds` | 30 | Time budget for extracting one file |
 | `Limits` | `MaxModelRoundTripsPerQuestion` | 8 | Agent model round trips per question |

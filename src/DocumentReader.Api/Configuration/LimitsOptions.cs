@@ -31,7 +31,10 @@ public sealed class LimitsOptions : IValidatableObject
     [Range(1, 1L << 31)]
     public long MaxUploadRequestBytes { get; set; } = 100L * 1024 * 1024;
 
-    /// <summary>Uploads that would take a session above this many documents are rejected (413).</summary>
+    /// <summary>
+    /// Uploads that would take a session above this many readable documents (indexed or partially
+    /// indexed) are rejected (413). Failed files are listed but do not count.
+    /// </summary>
     [Range(1, 1000)]
     public int MaxDocumentsPerSession { get; set; } = 20;
 
