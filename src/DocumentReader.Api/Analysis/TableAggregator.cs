@@ -183,3 +183,31 @@ public static class TableAggregator
         return (resolution.Currency, null);
     }
 }
+
+/// <summary>A total or subtotal value that the table itself states in a column.</summary>
+public sealed record StatedValue(int RowNumber, RowKind Kind, string Label, decimal Value);
+
+/// <summary>The table's own total (the last total row) and subtotals for one column.</summary>
+public sealed record StatedTotals(StatedValue? Total, IReadOnlyList<StatedValue> Subtotals)
+{
+    /// <summary>
+    /// Reads the total and subtotal rows that have a number in <paramref name="column"/>, so a
+    /// calculated sum can be cross-checked against the figures written in the document.
+    /// </summary>
+    public static StatedTotals Find(DetectedTable table, TableColumn column)
+    {
+        var stated = table.Rows
+            .Where(row => row.Kind is RowKind.Total or RowKind.Subtotal
+                && row.Cells.TryGetValue(column.ColumnNumber, out var cell) && cell.IsNumeric)
+            .Select(row => new StatedValue(
+                row.RowNumber,
+                row.Kind,
+                row.Cells.Values.FirstOrDefault(cell => cell.Kind == CellValueKind.Text)?.DisplayText ?? string.Empty,
+                row.Cells[column.ColumnNumber].Number!.Value))
+            .ToList();
+
+        return new StatedTotals(
+            stated.LastOrDefault(value => value.Kind == RowKind.Total),
+            stated.Where(value => value.Kind == RowKind.Subtotal).ToList());
+    }
+}

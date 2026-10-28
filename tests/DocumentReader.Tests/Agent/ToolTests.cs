@@ -165,7 +165,70 @@ public sealed class ToolTests
         Assert.Equal(4, json.GetProperty("valuesUsed").GetInt32());
         Assert.Equal(["item"], json.GetProperty("rowKinds").EnumerateArray().Select(kind => kind.GetString()));
         Assert.Equal(4, json.GetProperty("evidenceIds").GetArrayLength());
-        Assert.Equal(4, result.EvidenceIds.Count);
+
+        // The fixture's grand total (18000, row 14) and subtotals (rows 7 and 13) are cross-checked.
+        Assert.Equal(18000m, json.GetProperty("statedTotal").GetDecimal());
+        Assert.True(json.GetProperty("matchesStatedTotal").GetBoolean());
+        Assert.Equal(2, json.GetProperty("statedSubtotals").GetArrayLength());
+        Assert.Equal(7, result.EvidenceIds.Count);
+    }
+
+    [Fact]
+    public void AggregateTable_ValueSubtotalsInDescriptionColumn_AreExcludedAndCrossChecked()
+    {
+        var session = TestSessions.Create(TestSessions.Workbook(ExcelFixtures.SectionedBoqWithValueSubtotals()));
+
+        var json = TestSessions.Success(_registry.Execute(
+            session, "aggregate_table", TestSessions.Json("""{ "tableId": "T1", "column": "Amount (USD)", "operation": "sum" }"""), CancellationToken.None));
+
+        Assert.Equal(62800m, json.GetProperty("result").GetDecimal());
+        Assert.Equal("USD", json.GetProperty("currency").GetString());
+        Assert.Equal(6, json.GetProperty("valuesUsed").GetInt32());
+        Assert.Equal(62800m, json.GetProperty("statedTotal").GetDecimal());
+        Assert.True(json.GetProperty("matchesStatedTotal").GetBoolean());
+        Assert.StartsWith("E", json.GetProperty("statedTotalEvidenceId").GetString());
+        Assert.Equal(
+            [14700m, 48100m],
+            json.GetProperty("statedSubtotals").EnumerateArray().Select(subtotal => subtotal.GetProperty("value").GetDecimal()));
+        Assert.Equal("Section 1 subtotal", json.GetProperty("statedSubtotals")[0].GetProperty("label").GetString());
+        Assert.Empty(json.GetProperty("notes").EnumerateArray());
+    }
+
+    [Fact]
+    public void AggregateTable_StatedTotalDiffersFromItems_ReportsMismatch()
+    {
+        var session = TestSessions.Create(TestSessions.Workbook(ExcelFixtures.Xlsx(book =>
+        {
+            var sheet = book.AddWorksheet("BOQ");
+            sheet.Cell("A1").Value = "Description";
+            sheet.Cell("B1").Value = "Amount";
+            sheet.Cell("A2").Value = "Pump";
+            sheet.Cell("B2").Value = 100;
+            sheet.Cell("A3").Value = "Valve";
+            sheet.Cell("B3").Value = 200;
+            sheet.Cell("A4").Value = "Total";
+            sheet.Cell("B4").Value = 400;
+        })));
+
+        var json = TestSessions.Success(_registry.Execute(
+            session, "aggregate_table", TestSessions.Json("""{ "tableId": "T1", "column": "Amount", "operation": "sum" }"""), CancellationToken.None));
+
+        Assert.Equal(300m, json.GetProperty("result").GetDecimal());
+        Assert.Equal(400m, json.GetProperty("statedTotal").GetDecimal());
+        Assert.False(json.GetProperty("matchesStatedTotal").GetBoolean());
+        Assert.Contains(json.GetProperty("notes").EnumerateArray(), note => note.GetString()!.Contains("differs from the total stated"));
+    }
+
+    [Fact]
+    public void AggregateTable_WithFilters_DoesNotCompareWithTheTableTotal()
+    {
+        var json = TestSessions.Success(Run("aggregate_table", """
+            { "tableId": "T1", "column": "Amount (USD)", "operation": "sum", "filters": [{ "column": "Qty", "operator": "gte", "value": 80 }] }
+            """));
+
+        Assert.Equal(2600m, json.GetProperty("result").GetDecimal());
+        Assert.False(json.TryGetProperty("statedTotal", out _));
+        Assert.False(json.TryGetProperty("matchesStatedTotal", out _));
     }
 
     [Fact]
