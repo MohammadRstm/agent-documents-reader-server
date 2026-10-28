@@ -7,6 +7,10 @@ public sealed class LimitsOptions
 {
     public const string SectionName = "Limits";
 
+    /// <summary>Sessions that may be created per client IP address per minute.</summary>
+    [Range(1, 10_000)]
+    public int SessionCreationRequestsPerMinute { get; set; } = 10;
+
     /// <summary>Upload requests allowed per client IP address per minute.</summary>
     [Range(1, 10_000)]
     public int UploadRequestsPerMinute { get; set; } = 10;

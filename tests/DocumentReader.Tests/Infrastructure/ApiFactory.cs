@@ -10,14 +10,25 @@ namespace DocumentReader.Tests.Infrastructure;
 
 /// <summary>
 /// Hosts the real API in memory with a controllable clock, a low chat rate limit and the
-/// test-only endpoints in <see cref="TestEndpointsController"/>.
+/// test-only endpoints in <see cref="TestEndpointsController"/>. Subclasses can override
+/// <see cref="GetSettings"/> to change configuration for a single test class.
 /// </summary>
-public sealed class ApiFactory : WebApplicationFactory<Program>
+public class ApiFactory : WebApplicationFactory<Program>
 {
     public const int ChatRequestsPerMinute = 2;
     public const int IdleTimeoutMinutes = 60;
 
     public ManualTimeProvider Clock { get; } = new(new DateTimeOffset(2026, 10, 28, 12, 0, 0, TimeSpan.Zero));
+
+    /// <summary>Configuration values applied on top of appsettings.json.</summary>
+    protected virtual Dictionary<string, string?> GetSettings() => new()
+    {
+        ["Limits:ChatRequestsPerMinute"] = ChatRequestsPerMinute.ToString(),
+        // All test requests share one partition, so keep session creation effectively unlimited.
+        ["Limits:SessionCreationRequestsPerMinute"] = "10000",
+        ["Limits:UploadRequestsPerMinute"] = "10000",
+        ["Sessions:IdleTimeoutMinutes"] = IdleTimeoutMinutes.ToString(),
+    };
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -25,11 +36,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Testing");
 
         builder.ConfigureAppConfiguration((_, configuration) =>
-            configuration.AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Limits:ChatRequestsPerMinute"] = ChatRequestsPerMinute.ToString(),
-                ["Sessions:IdleTimeoutMinutes"] = IdleTimeoutMinutes.ToString(),
-            }));
+            configuration.AddInMemoryCollection(GetSettings()));
 
         builder.ConfigureTestServices(services =>
         {

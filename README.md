@@ -36,6 +36,7 @@ User Secrets are only loaded in the `Development` environment. Elsewhere, use th
 
 | Section | Setting | Default | Meaning |
 |---|---|---|---|
+| `Limits` | `SessionCreationRequestsPerMinute` | 10 | Sessions created per client IP per minute |
 | `Limits` | `UploadRequestsPerMinute` | 10 | Upload requests per client IP per minute |
 | `Limits` | `ChatRequestsPerMinute` | 20 | Chat questions per client IP per minute |
 | `Limits` | `MaxModelRoundTripsPerQuestion` | 8 | Agent model round trips per question |
