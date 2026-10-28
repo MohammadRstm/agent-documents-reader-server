@@ -86,7 +86,9 @@ Per-file results are reported through a status (`indexed`, `partiallyIndexed`, `
 
 | Problem | Status | Message (abridged) |
 |---|---|---|
-| Not a PDF or Excel file (text, image, Word, random bytes) | `unsupported` | "This file is not a PDF or Excel file … Convert it …" |
+| Not a PDF or Excel file (text, image, Word, random bytes) and not named like one | `unsupported` | "This file is not a PDF or Excel file … Convert it …" |
+| Named `.xlsx`/`.xlsm`/`.xls` but the content is not readable as a workbook (damaged beyond recognition, or a renamed file) | `corrupt` | "This file is named like an Excel workbook, but its content could not be read as one … save a new copy …" |
+| Named `.pdf` but the content is not readable as a PDF | `corrupt` | "This file is named like a PDF, but its content could not be read as one … Export or download it again …" |
 | Truncated or damaged PDF | `corrupt` | "The PDF could not be read because it appears to be damaged or incomplete …" |
 | Truncated or damaged workbook (.xlsx/.xlsm/.xls) | `corrupt` | "The workbook could not be read … save a new copy …" |
 | Password-protected PDF or Office file | `corrupt` | "… password-protected … Remove the password …" |
@@ -96,7 +98,7 @@ Per-file results are reported through a status (`indexed`, `partiallyIndexed`, `
 | Expands too much when unzipped (ZIP bomb) | `tooLarge` | "The workbook is too large to process once uncompressed …" |
 | Parsing exceeded the time limit | `corrupt` | "The file could not be processed within the time limit …" |
 
-One bad, damaged or hanging file never fails, blocks or crashes the rest of the upload. A PDF with a broken cross-reference offset that PdfPig can recover is indexed normally.
+The file name is used only to choose that status and message; it never selects a parser, and `fileType` always reflects the content. One bad, damaged or hanging file never fails, blocks or crashes the rest of the upload. A PDF with a broken cross-reference offset that PdfPig can recover is indexed normally.
 
 ## Setup and running
 

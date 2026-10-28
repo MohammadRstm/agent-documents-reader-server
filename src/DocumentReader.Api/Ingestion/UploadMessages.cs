@@ -9,6 +9,12 @@ public static class UploadMessages
     public const string Unsupported =
         "This file is not a PDF or Excel file (.pdf, .xlsx, .xlsm, .xls), so it was not processed. Convert it to one of these formats and upload it again.";
 
+    public const string NamedLikeWorkbookButUnreadable =
+        "This file is named like an Excel workbook, but its content could not be read as one. It may be damaged, or a different kind of file that was renamed. Open it in Excel, save a new copy, and upload that copy.";
+
+    public const string NamedLikePdfButUnreadable =
+        "This file is named like a PDF, but its content could not be read as one. It may be damaged, or a different kind of file that was renamed. Export or download it again, then upload the new copy.";
+
     public const string Empty = "The file is empty (0 bytes). Upload a file that has content.";
 
     public const string Damaged =

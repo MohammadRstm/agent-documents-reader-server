@@ -124,9 +124,7 @@ public sealed class DocumentIngestionService(
             fileType = FileTypeDetector.Detect(content);
             if (fileType == FileType.Unknown)
             {
-                return (fileType, FileTypeDetector.IsEncryptedOfficeDocument(content)
-                    ? ExtractionResult.Failed(DocumentStatus.Corrupt, UploadMessages.OfficePasswordProtected)
-                    : ExtractionResult.Failed(DocumentStatus.Unsupported, UploadMessages.Unsupported));
+                return (fileType, UnrecognizedContent(content, file.FileName));
             }
 
             var detectedType = fileType;
@@ -138,6 +136,28 @@ public sealed class DocumentIngestionService(
             logger.LogWarning(exception, "Unexpected failure while processing an uploaded file.");
             return (fileType, ExtractionResult.Failed(DocumentStatus.Corrupt, UploadMessages.Damaged));
         }
+    }
+
+    /// <summary>
+    /// Outcome for content that is not a recognizable PDF or Excel file. The file name is used ONLY to
+    /// choose the status and message: a file named .pdf/.xlsx/.xlsm/.xls is most likely a damaged or
+    /// renamed file of that kind, which deserves a more specific message than "not supported". The name
+    /// never selects a parser and never bypasses content-based detection; <c>fileType</c> stays what the
+    /// content says.
+    /// </summary>
+    private static ExtractionResult UnrecognizedContent(byte[] content, string? fileName)
+    {
+        if (FileTypeDetector.IsEncryptedOfficeDocument(content))
+        {
+            return ExtractionResult.Failed(DocumentStatus.Corrupt, UploadMessages.OfficePasswordProtected);
+        }
+
+        return Path.GetExtension(ToDisplayFileName(fileName)).ToLowerInvariant() switch
+        {
+            ".xlsx" or ".xlsm" or ".xls" => ExtractionResult.Failed(DocumentStatus.Corrupt, UploadMessages.NamedLikeWorkbookButUnreadable),
+            ".pdf" => ExtractionResult.Failed(DocumentStatus.Corrupt, UploadMessages.NamedLikePdfButUnreadable),
+            _ => ExtractionResult.Failed(DocumentStatus.Unsupported, UploadMessages.Unsupported),
+        };
     }
 
     /// <summary>

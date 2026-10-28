@@ -162,7 +162,7 @@ public sealed class UploadConcurrencyTests : IClassFixture<UploadConcurrencyTest
 
         await ErrorAssertions.AssertErrorAsync(await AskAsync(sessionId), HttpStatusCode.Conflict, ErrorCodes.NoDocuments);
 
-        var upload = await UploadAsync(sessionId, ("notes.pdf", Encoding.UTF8.GetBytes("Not really a PDF")));
+        var upload = await UploadAsync(sessionId, ("notes.txt", Encoding.UTF8.GetBytes("Not a document")));
         Assert.Equal("unsupported", Assert.Single(await ReadDocumentsAsync(upload)).GetProperty("status").GetString());
         await ErrorAssertions.AssertErrorAsync(await AskAsync(sessionId), HttpStatusCode.Conflict, ErrorCodes.NoDocuments);
         Assert.Empty(_factory.Model.Requests);

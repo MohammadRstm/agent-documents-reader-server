@@ -32,12 +32,14 @@ public sealed class CorruptedUploadTests(CorruptedUploadTests.CorruptedUploadFac
         ["xlsx-encrypted"] = () => ExcelFixtures.CompoundFile("EncryptedPackage"),
         ["xlsx-zip-bomb"] = () => ExcelFixtures.HighlyCompressedPackage(uncompressedPartBytes: 5 * 1024 * 1024),
         ["docx-renamed"] = ExcelFixtures.WordDocument,
+        ["zip-without-workbook"] = () => ExcelFixtures.Zip(("hello.txt", "Hello")),
         ["xls-truncated"] = XlsFixtures.Truncated,
         ["ole-without-workbook"] = () => ExcelFixtures.CompoundFile("WordDocument"),
         ["ole-garbage"] = ExcelFixtures.CompoundFileGarbage,
         ["zero-bytes"] = () => [],
         ["over-size-limit"] = () => PdfFixtures.PdfHeaderPadded(MaxFileSizeBytes + 1),
         ["text-renamed-pdf"] = () => Encoding.UTF8.GetBytes("Just some notes, not a PDF."),
+        ["text"] = () => Encoding.UTF8.GetBytes("Just some notes."),
         ["png"] = ExcelFixtures.Png,
         ["random-bytes"] = () => ExcelFixtures.RandomBytes(),
     };
@@ -54,15 +56,21 @@ public sealed class CorruptedUploadTests(CorruptedUploadTests.CorruptedUploadFac
     [InlineData("xlsx-malformed-sheet", "boq.xlsx", "corrupt", "xlsx", UploadMessages.WorkbookDamaged)]
     [InlineData("xlsx-encrypted", "locked.xlsx", "corrupt", "unknown", UploadMessages.OfficePasswordProtected)]
     [InlineData("xlsx-zip-bomb", "bomb.xlsx", "tooLarge", "xlsx", "too large to process once uncompressed")]
-    [InlineData("docx-renamed", "letter.xlsx", "unsupported", "unknown", UploadMessages.Unsupported)]
+    [InlineData("docx-renamed", "letter.xlsx", "corrupt", "unknown", UploadMessages.NamedLikeWorkbookButUnreadable)]
+    [InlineData("docx-renamed", "letter.docx", "unsupported", "unknown", UploadMessages.Unsupported)]
+    [InlineData("zip-without-workbook", "archive.xlsx", "corrupt", "unknown", UploadMessages.NamedLikeWorkbookButUnreadable)]
     [InlineData("xls-truncated", "old.xls", "corrupt", "xls", UploadMessages.WorkbookDamaged)]
-    [InlineData("ole-without-workbook", "memo.xls", "unsupported", "unknown", UploadMessages.Unsupported)]
-    [InlineData("ole-garbage", "junk.xls", "unsupported", "unknown", UploadMessages.Unsupported)]
+    [InlineData("ole-without-workbook", "memo.xls", "corrupt", "unknown", UploadMessages.NamedLikeWorkbookButUnreadable)]
+    [InlineData("ole-without-workbook", "memo.doc", "unsupported", "unknown", UploadMessages.Unsupported)]
+    [InlineData("ole-garbage", "junk.xls", "corrupt", "unknown", UploadMessages.NamedLikeWorkbookButUnreadable)]
     [InlineData("zero-bytes", "empty.pdf", "empty", "unknown", UploadMessages.Empty)]
     [InlineData("over-size-limit", "huge.pdf", "tooLarge", "pdf", "limit, so it was not processed")]
-    [InlineData("text-renamed-pdf", "notes.pdf", "unsupported", "unknown", UploadMessages.Unsupported)]
-    [InlineData("png", "photo.pdf", "unsupported", "unknown", UploadMessages.Unsupported)]
-    [InlineData("random-bytes", "data.xlsx", "unsupported", "unknown", UploadMessages.Unsupported)]
+    [InlineData("text-renamed-pdf", "notes.pdf", "corrupt", "unknown", UploadMessages.NamedLikePdfButUnreadable)]
+    [InlineData("text", "notes.txt", "unsupported", "unknown", UploadMessages.Unsupported)]
+    [InlineData("png", "photo.pdf", "corrupt", "unknown", UploadMessages.NamedLikePdfButUnreadable)]
+    [InlineData("png", "photo.png", "unsupported", "unknown", UploadMessages.Unsupported)]
+    [InlineData("random-bytes", "data.xlsx", "corrupt", "unknown", UploadMessages.NamedLikeWorkbookButUnreadable)]
+    [InlineData("random-bytes", "data.bin", "unsupported", "unknown", UploadMessages.Unsupported)]
     public async Task Upload_ProblemFile_GetsSpecificStatusAndSafeMessage(
         string fixture, string fileName, string expectedStatus, string expectedFileType, string expectedWarning)
     {
@@ -116,7 +124,7 @@ public sealed class CorruptedUploadTests(CorruptedUploadTests.CorruptedUploadFac
             UploadMessages.Unsupported, UploadMessages.Damaged, UploadMessages.PdfDamaged, UploadMessages.WorkbookDamaged,
             UploadMessages.PdfPasswordProtected, UploadMessages.OfficePasswordProtected, UploadMessages.Empty,
             UploadMessages.TooLarge(1024), UploadMessages.PdfScanned, UploadMessages.WorkbookTooLargeUncompressed(1024),
-            UploadMessages.TimedOut,
+            UploadMessages.TimedOut, UploadMessages.NamedLikePdfButUnreadable, UploadMessages.NamedLikeWorkbookButUnreadable,
         ];
 
         Assert.Equal(messages.Length, messages.Distinct().Count());
