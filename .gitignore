@@ -1,0 +1,15 @@
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.idea/
+.vscode/
+TestResults/
+coverage/
+*.log
+appsettings.*.local.json
+.env
+# Runtime upload/temp storage
+storage/
+uploads/
