@@ -91,4 +91,4 @@ User Secrets are only loaded in the `Development` environment. Elsewhere, use th
 dotnet test tests/DocumentReader.Tests/DocumentReader.Tests.csproj
 ```
 
-The tests are deterministic and need no API key or network access. CI (`.github/workflows/ci.yml`) restores, builds with warnings as errors, and runs this test project only.
+The tests are deterministic and need no API key or network access. Legacy .xls fixtures are generated with NPOI, a test-only dependency whose binary package requires accepting its OSMF EULA (accepted by the project owner, see `tests/DocumentReader.Tests/DocumentReader.Tests.csproj`). CI (`.github/workflows/ci.yml`) restores, builds with warnings as errors, and runs this test project only.

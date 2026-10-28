@@ -94,6 +94,20 @@ public sealed class DocumentsEndpointTests(DocumentsEndpointTests.SmallLimitsFac
     }
 
     [Fact]
+    public async Task Upload_LegacyXlsWorkbook_IsIndexedWithTables()
+    {
+        var sessionId = await factory.CreateSessionAsync(_client);
+
+        var response = await UploadAsync(sessionId, ("boq.xls", XlsFixtures.BillOfQuantities()));
+
+        var document = Assert.Single(await ReadDocumentsAsync(response));
+        Assert.Equal("xls", document.GetProperty("fileType").GetString());
+        Assert.Equal("indexed", document.GetProperty("status").GetString());
+        Assert.Equal(2, document.GetProperty("tableCount").GetInt32());
+        Assert.Equal(12, document.GetProperty("chunkCount").GetInt32());
+    }
+
+    [Fact]
     public async Task Upload_PasswordProtectedOfficeFile_ReturnsCorrupt()
     {
         var sessionId = await factory.CreateSessionAsync(_client);
