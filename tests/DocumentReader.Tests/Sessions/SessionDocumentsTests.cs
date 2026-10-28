@@ -67,7 +67,7 @@ public sealed class SessionDocumentsTests
             .Select(page => new ExtractedChunk(EvidenceKind.TextChunk, new PdfPageLocation(page), $"Text of page {page}"))
             .ToList();
         var record = new DocumentRecord(
-            id, $"{id}.pdf", FileType.Pdf, 100, DocumentStatus.Indexed, DateTimeOffset.UnixEpoch, pages.Length, chunks.Count, []);
-        return new IngestedDocument(record, chunks);
+            id, $"{id}.pdf", FileType.Pdf, 100, DocumentStatus.Indexed, DateTimeOffset.UnixEpoch, pages.Length, null, 0, chunks.Count, []);
+        return new IngestedDocument(record, chunks, []);
     }
 }

@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using DocumentReader.Api.Ingestion;
+using DocumentReader.Api.Ingestion.Excel;
 
 namespace DocumentReader.Api.Sessions;
 
@@ -12,6 +13,7 @@ public sealed class SessionDocuments
     private readonly Lock _lock = new();
     private readonly List<DocumentRecord> _documents = [];
     private readonly Dictionary<string, EvidenceItem> _evidence = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IReadOnlyList<DetectedTable>> _tables = new(StringComparer.Ordinal);
     private int _lastEvidenceNumber;
 
     public int Count
@@ -51,16 +53,29 @@ public sealed class SessionDocuments
             {
                 var document = ingested.Document;
                 _documents.Add(document);
+                _tables[document.Id] = ingested.Tables;
                 foreach (var chunk in ingested.Chunks)
                 {
                     _lastEvidenceNumber++;
                     var evidenceId = $"E{_lastEvidenceNumber}";
                     _evidence[evidenceId] = new EvidenceItem(
-                        evidenceId, document.Id, document.FileName, chunk.Kind, chunk.Source, chunk.Text);
+                        evidenceId, document.Id, document.FileName, chunk.Kind, chunk.Source, chunk.Text, chunk.TableRow);
                 }
             }
 
             return true;
+        }
+    }
+
+    /// <summary>
+    /// Detected tables of a document in this session; table N is at index N-1. Empty when the
+    /// document is not in this session or has no tables.
+    /// </summary>
+    public IReadOnlyList<DetectedTable> GetTables(string documentId)
+    {
+        lock (_lock)
+        {
+            return _tables.TryGetValue(documentId, out var tables) ? tables : [];
         }
     }
 

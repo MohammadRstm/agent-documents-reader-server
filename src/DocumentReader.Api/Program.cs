@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using DocumentReader.Api.Configuration;
 using DocumentReader.Api.Errors;
 using DocumentReader.Api.Ingestion;
+using DocumentReader.Api.Ingestion.Excel;
 using DocumentReader.Api.Ingestion.Pdf;
 using DocumentReader.Api.Llm;
 using DocumentReader.Api.Sessions;
@@ -57,6 +58,9 @@ builder.Services.AddOptions<FormOptions>()
         form.MultipartBodyLengthLimit = limits.Value.MaxUploadRequestBytes);
 builder.Services.AddSingleton<UploadFormReader>();
 builder.Services.AddSingleton<PdfTextExtractor>();
+builder.Services.AddSingleton<XlsxGridReader>();
+builder.Services.AddSingleton<XlsGridReader>();
+builder.Services.AddSingleton<ExcelDocumentExtractor>();
 builder.Services.AddSingleton<DocumentIngestionService>();
 
 builder.Services.AddApiRateLimiting();

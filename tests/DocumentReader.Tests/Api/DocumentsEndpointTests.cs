@@ -73,6 +73,39 @@ public sealed class DocumentsEndpointTests(DocumentsEndpointTests.SmallLimitsFac
     }
 
     [Fact]
+    public async Task Upload_Workbook_ReturnsExcelSummaryWithSheetsAndTables()
+    {
+        var sessionId = await factory.CreateSessionAsync(_client);
+
+        var response = await UploadAsync(sessionId, ("boq.xlsx", ExcelFixtures.BillOfQuantities()));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var document = Assert.Single(await ReadDocumentsAsync(response));
+        Assert.Equal("xlsx", document.GetProperty("fileType").GetString());
+        Assert.Equal("indexed", document.GetProperty("status").GetString());
+        Assert.Equal(JsonValueKind.Null, document.GetProperty("pageCount").ValueKind);
+        Assert.Equal(2, document.GetProperty("tableCount").GetInt32());
+        var sheet = Assert.Single(document.GetProperty("sheets").EnumerateArray());
+        Assert.Equal("BOQ", sheet.GetProperty("name").GetString());
+        Assert.Equal(2, sheet.GetProperty("tableCount").GetInt32());
+        Assert.Equal(16, sheet.GetProperty("rowCount").GetInt32());
+        // 9 BOQ rows + 2 milestone rows + 1 text chunk for the title and note.
+        Assert.Equal(12, document.GetProperty("chunkCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task Upload_PasswordProtectedOfficeFile_ReturnsCorrupt()
+    {
+        var sessionId = await factory.CreateSessionAsync(_client);
+
+        var response = await UploadAsync(sessionId, ("locked.xlsx", ExcelFixtures.CompoundFile("EncryptedPackage")));
+
+        var document = Assert.Single(await ReadDocumentsAsync(response));
+        Assert.Equal("corrupt", document.GetProperty("status").GetString());
+        Assert.Contains("password", document.GetProperty("warnings")[0].GetString());
+    }
+
+    [Fact]
     public async Task Upload_ScannedPdf_ReturnsNoTextExtracted()
     {
         var sessionId = await factory.CreateSessionAsync(_client);
