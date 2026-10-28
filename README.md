@@ -2,7 +2,7 @@
 
 ASP.NET Core Web API (.NET 10) for the AI document-analysis assessment. Users upload PDF and Excel documents into an anonymous session and ask questions about them; answers cite the source page or cell range.
 
-Status: work in progress. Implemented so far: sessions, the shared error format, rate limiting, and PDF and Excel upload and extraction. Search, evidence lookup and chat are not implemented yet.
+Status: work in progress. Implemented so far: sessions, the shared error format, rate limiting, PDF and Excel upload and extraction, keyword search, the agent tools and evidence lookup (`GET /api/evidence/{id}`). Chat is not implemented yet.
 
 The API contract shared with the React client is in [`docs/api-contract.md`](docs/api-contract.md).
 
@@ -80,6 +80,22 @@ User Secrets are only loaded in the `Development` environment. Elsewhere, use th
 - Each table row becomes one evidence chunk labelled with its column headers, cited by sheet and cell range (for example `B5:G5`). Rows outside tables (titles, notes) are grouped into text chunks.
 - Password-protected Office files and unreadable workbooks get status `corrupt`.
 - Uploaded bytes are held in memory only while a file is processed. ASP.NET Core may buffer large multipart parts to temporary files during the request; it deletes them when the request ends. Extracted text lives in the session's memory.
+
+## Search and agent tools
+
+The backend gives the model seven read-only tools (`src/DocumentReader.Api/Agent/Tools`). They are plain services that can be called and tested without an LLM:
+
+| Tool | Purpose |
+|---|---|
+| `list_documents` | Documents, status, sheets and detected tables (table IDs `T1`, `T2`, ...) |
+| `search_text` | BM25 keyword search over all evidence; best matches only, not exhaustive |
+| `get_evidence` | Full text and source of up to 10 evidence items |
+| `describe_table` | Columns (type, currency), row-kind counts, sample rows, warnings |
+| `query_table` | Filters and sorts every row of a table; exact match count |
+| `aggregate_table` | Sum, count, average, min or max with decimal arithmetic. Only item rows are included by default (no subtotals or totals), and values in different currencies are never combined |
+| `find_dates` | Scans all evidence for explicit dates; ambiguous dates such as 03/04/2027 are returned with both readings |
+
+Tool arguments are validated strictly in code: unknown properties, wrong types, out-of-range values and unknown IDs are rejected with an error result. Document, table and evidence IDs are only resolved inside the caller's session. Results are size-limited.
 
 ## Sessions
 
