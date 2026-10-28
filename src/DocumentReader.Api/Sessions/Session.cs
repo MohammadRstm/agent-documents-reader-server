@@ -20,6 +20,9 @@ public sealed class Session
 
     public DateTimeOffset CreatedAt { get; }
 
+    /// <summary>Uploaded documents and their evidence; only reachable through this session.</summary>
+    public SessionDocuments Documents { get; } = new();
+
     public DateTimeOffset LastAccessedAt =>
         new(Interlocked.Read(ref _lastAccessedUtcTicks), TimeSpan.Zero);
 

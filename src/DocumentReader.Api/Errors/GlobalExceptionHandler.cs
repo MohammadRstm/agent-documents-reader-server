@@ -15,18 +15,33 @@ public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logge
     {
         var traceId = ApiErrors.GetTraceId(httpContext);
 
-        // The client disconnected; there is nobody left to send a response to.
-        if (exception is OperationCanceledException && httpContext.RequestAborted.IsCancellationRequested)
+        // The client disconnected (surfacing as cancellation or an I/O error); nobody is left to answer.
+        if (httpContext.RequestAborted.IsCancellationRequested
+            && exception is OperationCanceledException or IOException)
         {
-            logger.LogInformation("Request was cancelled by the client. TraceId: {TraceId}", traceId);
+            logger.LogInformation("Request was aborted by the client. TraceId: {TraceId}", traceId);
             return true;
         }
 
         int statusCode;
         string code;
         string message;
+        IReadOnlyDictionary<string, string[]>? details = null;
 
-        if (exception is BadHttpRequestException badRequest)
+        if (exception is ApiException apiException)
+        {
+            // Expected client error; the message was written to be safe for clients.
+            logger.LogInformation(
+                "Request rejected with {StatusCode} {ErrorCode}. TraceId: {TraceId}",
+                apiException.StatusCode,
+                apiException.Code,
+                traceId);
+            statusCode = apiException.StatusCode;
+            code = apiException.Code;
+            message = apiException.Message;
+            details = apiException.Details;
+        }
+        else if (exception is BadHttpRequestException badRequest)
         {
             // Raised by the server for malformed requests, including body-size limit violations.
             logger.LogWarning("Bad HTTP request ({StatusCode}). TraceId: {TraceId}", badRequest.StatusCode, traceId);
@@ -51,7 +66,7 @@ public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logge
             message = "An unexpected error occurred.";
         }
 
-        await ApiErrors.WriteAsync(httpContext, statusCode, code, message, cancellationToken);
+        await ApiErrors.WriteAsync(httpContext, statusCode, code, message, cancellationToken, details);
         return true;
     }
 }

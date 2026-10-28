@@ -7,4 +7,12 @@
     <UserSecretsId>43c282bc-d2b2-4c0e-b50d-45693e9c621e</UserSecretsId>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="PdfPig" Version="0.1.16" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DocumentReader.Tests" />
+  </ItemGroup>
+
 </Project>

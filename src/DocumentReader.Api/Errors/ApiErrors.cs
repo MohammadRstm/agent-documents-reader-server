@@ -41,11 +41,12 @@ public static class ApiErrors
         int statusCode,
         string code,
         string message,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyDictionary<string, string[]>? details = null)
     {
         httpContext.Response.StatusCode = statusCode;
         return httpContext.Response.WriteAsJsonAsync(
-            Create(httpContext, code, message),
+            Create(httpContext, code, message, details),
             cancellationToken);
     }
 }
