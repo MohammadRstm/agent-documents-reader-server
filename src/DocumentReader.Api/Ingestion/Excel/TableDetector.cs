@@ -408,24 +408,18 @@ public static class TableDetector
                 .ToList();
             var headerCurrency = CurrencyDetector.FromText(columnName);
 
-            if (formatCurrencies.Count > 1)
+            var resolution = CurrencyDetector.Resolve(formatCurrencies, headerCurrency);
+            switch (resolution.Conflict)
             {
-                warnings.Add($"{location}: column \"{columnName}\" uses more than one currency ({string.Join(", ", formatCurrencies)}).");
-                return null;
+                case CurrencyConflict.BetweenFormats:
+                    warnings.Add($"{location}: column \"{columnName}\" uses more than one currency ({string.Join(", ", formatCurrencies)}).");
+                    break;
+                case CurrencyConflict.HeaderAndFormats:
+                    warnings.Add($"{location}: column \"{columnName}\" header says {headerCurrency} but its cells are formatted as {string.Join(", ", formatCurrencies)}.");
+                    break;
             }
 
-            if (formatCurrencies.Count == 1)
-            {
-                if (headerCurrency is not null && headerCurrency != formatCurrencies[0])
-                {
-                    warnings.Add($"{location}: column \"{columnName}\" header says {headerCurrency} but its cells are formatted as {formatCurrencies[0]}.");
-                    return null;
-                }
-
-                return formatCurrencies[0];
-            }
-
-            return headerCurrency;
+            return resolution.Currency;
         }
 
         private static string Normalize(string text) => string.Join(' ', text.Split(' ', StringSplitOptions.RemoveEmptyEntries)).ToUpperInvariant();

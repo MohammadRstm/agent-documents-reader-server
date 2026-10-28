@@ -143,6 +143,24 @@ public sealed class TableDetectorTests
     }
 
     [Fact]
+    public void Detect_DollarFormatWithUsdHeader_ResolvesToUsdWithoutWarning()
+    {
+        var table = SinglePriceTable("Amount (USD)", "\"$\"#,##0.00", "\"$\"#,##0.00");
+
+        Assert.Equal("USD", table.Columns.Single(column => column.Name == "Amount (USD)").Currency);
+        Assert.DoesNotContain(table.Warnings, warning => warning.Contains("currenc", StringComparison.OrdinalIgnoreCase) || warning.Contains("header says"));
+    }
+
+    [Fact]
+    public void Detect_HeaderCurrencyConflictingWithFormat_HasNoCurrencyAndWarns()
+    {
+        var table = SinglePriceTable("Amount (EUR)", "£#,##0.00", "£#,##0.00");
+
+        Assert.Null(table.Columns.Single(column => column.Name == "Amount (EUR)").Currency);
+        Assert.Contains(table.Warnings, warning => warning.Contains("header says EUR"));
+    }
+
+    [Fact]
     public void Detect_ValuesInColumnWithoutHeader_AddsNamedColumnAndWarns()
     {
         var workbook = ExcelFixtures.Xlsx(book =>
@@ -176,6 +194,20 @@ public sealed class TableDetectorTests
         Assert.Empty(layout.Tables);
         Assert.Equal([1, 2], layout.RowsOutsideTables);
     }
+
+    private static DetectedTable SinglePriceTable(string header, string firstFormat, string secondFormat) =>
+        Assert.Single(DetectFirstSheet(ExcelFixtures.Xlsx(book =>
+        {
+            var sheet = book.AddWorksheet("Prices");
+            sheet.Cell("A1").Value = "Item";
+            sheet.Cell("B1").Value = header;
+            sheet.Cell("A2").Value = "Pump";
+            sheet.Cell("B2").Value = 100;
+            sheet.Cell("B2").Style.NumberFormat.Format = firstFormat;
+            sheet.Cell("A3").Value = "Valve";
+            sheet.Cell("B3").Value = 200;
+            sheet.Cell("B3").Style.NumberFormat.Format = secondFormat;
+        })).Tables);
 
     private static SheetLayout DetectFirstSheet(byte[] xlsx)
     {

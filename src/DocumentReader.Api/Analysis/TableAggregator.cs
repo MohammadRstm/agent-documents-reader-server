@@ -149,8 +149,9 @@ public static class TableAggregator
     }
 
     /// <summary>
-    /// Uses the currency stated by the cells' number formats, falling back to the column header.
-    /// Refuses to combine values formatted in different currencies or when header and formats disagree.
+    /// Uses the currency stated by the cells' number formats and the column header (a symbol such as "$"
+    /// resolves to a consistent header code such as USD). Refuses to combine values formatted in different
+    /// currencies or when header and formats disagree.
     /// </summary>
     private static (string? Currency, string? Error) ResolveCurrency(TableColumn column, IEnumerable<GridCell> cells, List<string> notes)
     {
@@ -161,31 +162,24 @@ public static class TableAggregator
         var distinct = formatCurrencies.OfType<string>().Distinct(StringComparer.Ordinal).ToList();
         var headerCurrency = CurrencyDetector.FromText(column.Name);
 
-        if (distinct.Count > 1)
+        var resolution = CurrencyDetector.Resolve(distinct, headerCurrency);
+        switch (resolution.Conflict)
         {
-            return (null, $"Values in \"{column.Name}\" are in different currencies ({string.Join(", ", distinct)}). They cannot be combined without an exchange rate.");
+            case CurrencyConflict.BetweenFormats:
+                return (null, $"Values in \"{column.Name}\" are in different currencies ({string.Join(", ", distinct)}). They cannot be combined without an exchange rate.");
+            case CurrencyConflict.HeaderAndFormats:
+                return (null, $"The header of \"{column.Name}\" says {headerCurrency} but the values are formatted as {string.Join(", ", distinct)}; the currency is ambiguous.");
         }
 
-        if (distinct.Count == 1)
-        {
-            if (headerCurrency is not null && headerCurrency != distinct[0])
-            {
-                return (null, $"The header of \"{column.Name}\" says {headerCurrency} but the values are formatted as {distinct[0]}; the currency is ambiguous.");
-            }
-
-            if (formatCurrencies.Any(currency => currency is null))
-            {
-                notes.Add($"Some values have no currency format; they were assumed to be in {distinct[0]} like the others in this column.");
-            }
-
-            return (distinct[0], null);
-        }
-
-        if (headerCurrency is null && cellList.Count > 0)
+        if (resolution.Currency is null && cellList.Count > 0)
         {
             notes.Add("No currency is stated for these values.");
         }
+        else if (distinct.Count > 0 && formatCurrencies.Any(currency => currency is null))
+        {
+            notes.Add($"Some values have no currency format; they were assumed to be in {resolution.Currency} like the others in this column.");
+        }
 
-        return (headerCurrency, null);
+        return (resolution.Currency, null);
     }
 }

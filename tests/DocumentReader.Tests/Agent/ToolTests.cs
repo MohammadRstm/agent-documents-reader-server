@@ -169,6 +169,30 @@ public sealed class ToolTests
     }
 
     [Fact]
+    public void AggregateTable_DollarFormattedUsdColumn_SumsWithUsdCurrency()
+    {
+        var session = TestSessions.Create(TestSessions.Workbook(ExcelFixtures.Xlsx(book =>
+        {
+            var sheet = book.AddWorksheet("BOQ");
+            sheet.Cell("A1").Value = "Description";
+            sheet.Cell("B1").Value = "Amount (USD)";
+            for (var row = 2; row <= 7; row++)
+            {
+                sheet.Cell(row, 1).Value = $"Item {row - 1}";
+                sheet.Cell(row, 2).Value = 100 * (row - 1);
+                sheet.Cell(row, 2).Style.NumberFormat.Format = "\"$\"#,##0.00";
+            }
+        })));
+
+        var json = TestSessions.Success(_registry.Execute(
+            session, "aggregate_table", TestSessions.Json("""{ "tableId": "T1", "column": "Amount (USD)", "operation": "sum" }"""), CancellationToken.None));
+
+        Assert.Equal(2100m, json.GetProperty("result").GetDecimal());
+        Assert.Equal("USD", json.GetProperty("currency").GetString());
+        Assert.Equal(6, json.GetProperty("valuesUsed").GetInt32());
+    }
+
+    [Fact]
     public void AggregateTable_MixedCurrencies_ReturnsError()
     {
         var session = TestSessions.Create(TestSessions.Workbook(ExcelFixtures.Xlsx(book =>
