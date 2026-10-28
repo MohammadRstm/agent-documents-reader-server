@@ -57,6 +57,27 @@ public sealed class SessionDocumentsTests
     }
 
     [Fact]
+    public void TryAdd_FailedDocumentsBeyondCap_AreNotStoredButReported()
+    {
+        Assert.True(_documents.TryAdd([Document("failed-1", pages: [], DocumentStatus.Corrupt)], 10, maxFailedDocuments: 2, out var first));
+        Assert.Empty(first);
+
+        var added = _documents.TryAdd(
+            [
+                Document("failed-2", pages: [], DocumentStatus.Unsupported),
+                Document("failed-3", pages: [], DocumentStatus.Empty),
+                Document("readable", pages: [1]),
+            ],
+            10,
+            maxFailedDocuments: 2,
+            out var notStored);
+
+        Assert.True(added);
+        Assert.Equal(["failed-3"], notStored);
+        Assert.Equal(["failed-1", "failed-2", "readable"], _documents.GetDocuments().Select(document => document.Id));
+    }
+
+    [Fact]
     public void TryAdd_PartiallyIndexedDocument_CountsTowardLimit()
     {
         Assert.True(_documents.TryAdd([Document("partial", pages: [1], DocumentStatus.PartiallyIndexed)], maxContentDocuments: 1));

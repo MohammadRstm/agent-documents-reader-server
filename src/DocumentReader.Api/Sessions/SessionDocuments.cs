@@ -67,16 +67,27 @@ public sealed class SessionDocuments
         }
     }
 
+    /// <summary>Adds documents without a cap on failed documents (see the full overload).</summary>
+    public bool TryAdd(IReadOnlyList<IngestedDocument> documents, int maxContentDocuments) =>
+        TryAdd(documents, maxContentDocuments, int.MaxValue, out _);
+
     /// <summary>
     /// Adds the documents, gives each chunk the next evidence ID (E1, E2, ...) and each table the
     /// next table ID (T1, T2, ...), and indexes the evidence for search. Adds nothing and returns
     /// false if the session would hold more than <paramref name="maxContentDocuments"/> documents
-    /// with content.
+    /// with content. Failed documents (no content) are stored only while the session holds fewer
+    /// than <paramref name="maxFailedDocuments"/> of them; the IDs of failed documents that were not
+    /// stored are returned in <paramref name="notStoredDocumentIds"/>.
     /// </summary>
-    public bool TryAdd(IReadOnlyList<IngestedDocument> documents, int maxContentDocuments)
+    public bool TryAdd(
+        IReadOnlyList<IngestedDocument> documents,
+        int maxContentDocuments,
+        int maxFailedDocuments,
+        out IReadOnlyList<string> notStoredDocumentIds)
     {
         lock (_lock)
         {
+            notStoredDocumentIds = [];
             var contentDocuments = _documents.Count(document => document.HasContent)
                 + documents.Count(ingested => ingested.Document.HasContent);
             if (contentDocuments > maxContentDocuments)
@@ -84,11 +95,25 @@ public sealed class SessionDocuments
                 return false;
             }
 
+            var failedDocuments = _documents.Count(document => !document.HasContent);
+            var notStored = new List<string>();
             foreach (var ingested in documents)
             {
+                if (!ingested.Document.HasContent)
+                {
+                    if (failedDocuments >= maxFailedDocuments)
+                    {
+                        notStored.Add(ingested.Document.Id);
+                        continue;
+                    }
+
+                    failedDocuments++;
+                }
+
                 AddDocument(ingested);
             }
 
+            notStoredDocumentIds = notStored;
             return true;
         }
     }

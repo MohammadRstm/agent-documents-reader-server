@@ -14,10 +14,11 @@ public sealed class LimitsOptionsTests
     [Fact]
     public void ExcelLimitOutOfRange_IsInvalid()
     {
-        var errors = Validate(new LimitsOptions { MaxExcelColumns = 0, MaxWorkbookCompressionRatio = 0 });
+        var errors = Validate(new LimitsOptions { MaxExcelColumns = 0, MaxWorkbookCompressionRatio = 0, MaxFailedDocumentsPerSession = -1 });
 
         Assert.Contains(errors, error => error.MemberNames.Contains(nameof(LimitsOptions.MaxExcelColumns)));
         Assert.Contains(errors, error => error.MemberNames.Contains(nameof(LimitsOptions.MaxWorkbookCompressionRatio)));
+        Assert.Contains(errors, error => error.MemberNames.Contains(nameof(LimitsOptions.MaxFailedDocumentsPerSession)));
     }
 
     [Fact]
