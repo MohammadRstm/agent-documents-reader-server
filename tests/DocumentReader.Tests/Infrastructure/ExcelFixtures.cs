@@ -70,6 +70,23 @@ public static class ExcelFixtures
         return Zip([("[Content_Types].xml", contentTypes), .. parts]);
     }
 
+    /// <summary>
+    /// A package with the given content-type declarations (the inside of &lt;Types&gt;) and an
+    /// officeDocument relationship pointing at <paramref name="officeDocumentTarget"/>.
+    /// </summary>
+    public static byte[] PackageWithRelationships(string typeDeclarations, string officeDocumentTarget)
+    {
+        var contentTypes =
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+            $"<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">{typeDeclarations}</Types>";
+        var relationships =
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+            "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+            "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" " +
+            $"Target=\"{officeDocumentTarget}\"/></Relationships>";
+        return Zip(("[Content_Types].xml", contentTypes), ("_rels/.rels", relationships));
+    }
+
     public static byte[] Zip(params (string Name, string Content)[] entries)
     {
         using var stream = new MemoryStream();

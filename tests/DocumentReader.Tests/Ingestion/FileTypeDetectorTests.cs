@@ -45,6 +45,41 @@ public sealed class FileTypeDetectorTests
         Assert.Equal(FileType.Xlsx, FileTypeDetector.Detect(workbook));
     }
 
+    // Workbook content type declared as the Default for ".xml" (System.IO.Packaging / ClosedXML style).
+    [Theory]
+    [InlineData("/xl/workbook.xml")]
+    [InlineData("xl/workbook.xml")]
+    [InlineData("/XL/Workbook.xml")]
+    public void Detect_WorkbookTypeDeclaredAsDefault_ReturnsXlsx(string target)
+    {
+        var package = ExcelFixtures.PackageWithRelationships(
+            $"<Default Extension=\"xml\" ContentType=\"{ExcelFixtures.XlsxWorkbookContentType}\"/>",
+            target);
+
+        Assert.Equal(FileType.Xlsx, FileTypeDetector.Detect(package));
+    }
+
+    [Fact]
+    public void Detect_OverrideForWorkbookPart_WinsOverDefault()
+    {
+        var package = ExcelFixtures.PackageWithRelationships(
+            "<Default Extension=\"xml\" ContentType=\"application/xml\"/>" +
+            $"<Override PartName=\"/xl/workbook.xml\" ContentType=\"{ExcelFixtures.XlsmWorkbookContentType}\"/>",
+            "xl/workbook.xml");
+
+        Assert.Equal(FileType.Xlsm, FileTypeDetector.Detect(package));
+    }
+
+    [Fact]
+    public void Detect_OfficeDocumentThatIsNotAWorkbook_ReturnsUnknown()
+    {
+        var package = ExcelFixtures.PackageWithRelationships(
+            "<Default Extension=\"xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/>",
+            "word/document.xml");
+
+        Assert.Equal(FileType.Unknown, FileTypeDetector.Detect(package));
+    }
+
     [Fact]
     public void Detect_PackageWithMacroEnabledWorkbookType_ReturnsXlsm()
     {

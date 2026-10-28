@@ -23,43 +23,117 @@ public enum PackageSafety
 public static class OpenXmlPackageInspector
 {
     private const string ContentTypesEntryName = "[Content_Types].xml";
-    private const long MaxContentTypesBytes = 1024 * 1024;
+    private const string PackageRelationshipsEntryName = "_rels/.rels";
+    private const long MaxMetadataPartBytes = 1024 * 1024;
 
     private const string XlsxWorkbookContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml";
     private const string XlsmWorkbookContentType = "application/vnd.ms-excel.sheet.macroEnabled.main+xml";
 
-    /// <summary>Returns Xlsx or Xlsm for spreadsheet packages, otherwise Unknown (e.g. .docx or a plain ZIP).</summary>
+    /// <summary>
+    /// Returns Xlsx or Xlsm for spreadsheet packages, otherwise Unknown (e.g. .docx or a plain ZIP).
+    /// The workbook part is found through the package relationships (_rels/.rels) and its content type
+    /// is resolved like an OPC reader does: an Override for the part name wins, otherwise the Default
+    /// for its extension. Writers differ here: Excel uses an Override, while System.IO.Packaging (used
+    /// by ClosedXML) declares the workbook type as the Default for ".xml".
+    /// </summary>
     public static FileType DetectSpreadsheetType(byte[] content)
     {
         try
         {
             using var archive = OpenArchive(content);
-            var contentTypes = archive.GetEntry(ContentTypesEntryName);
-            if (contentTypes is null || contentTypes.Length > MaxContentTypesBytes)
+            var contentTypes = LoadXml(archive, ContentTypesEntryName);
+            if (contentTypes is null)
             {
                 return FileType.Unknown;
             }
 
-            using var stream = contentTypes.Open();
-            var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null };
-            using var reader = XmlReader.Create(stream, settings);
-            var declaredTypes = XDocument.Load(reader)
-                .Descendants()
+            var overrides = contentTypes.Descendants()
                 .Where(element => element.Name.LocalName == "Override")
-                .Select(element => (string?)element.Attribute("ContentType"))
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                .Select(element => (Key: NormalizePartName((string?)element.Attribute("PartName")), Type: (string?)element.Attribute("ContentType")))
+                .Where(entry => entry.Key.Length > 1 && entry.Type is not null)
+                .GroupBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First().Type!, StringComparer.OrdinalIgnoreCase);
+            var defaults = contentTypes.Descendants()
+                .Where(element => element.Name.LocalName == "Default")
+                .Select(element => (Key: ((string?)element.Attribute("Extension") ?? string.Empty).TrimStart('.'), Type: (string?)element.Attribute("ContentType")))
+                .Where(entry => entry.Key.Length > 0 && entry.Type is not null)
+                .GroupBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First().Type!, StringComparer.OrdinalIgnoreCase);
 
-            if (declaredTypes.Contains(XlsmWorkbookContentType))
+            var workbookPart = FindOfficeDocumentPart(archive);
+            if (workbookPart is not null)
             {
-                return FileType.Xlsm;
+                return ToSpreadsheetType(ResolveContentType(workbookPart, overrides, defaults));
             }
 
-            return declaredTypes.Contains(XlsxWorkbookContentType) ? FileType.Xlsx : FileType.Unknown;
+            // No usable package relationships: fall back to any declared spreadsheet workbook type.
+            var declared = overrides.Values.Concat(defaults.Values).ToList();
+            return declared.Select(ToSpreadsheetType).FirstOrDefault(type => type != FileType.Unknown, FileType.Unknown);
         }
         catch (Exception exception) when (exception is InvalidDataException or XmlException or IOException)
         {
             return FileType.Unknown;
         }
+    }
+
+    private static FileType ToSpreadsheetType(string? contentType) => contentType switch
+    {
+        _ when string.Equals(contentType, XlsmWorkbookContentType, StringComparison.OrdinalIgnoreCase) => FileType.Xlsm,
+        _ when string.Equals(contentType, XlsxWorkbookContentType, StringComparison.OrdinalIgnoreCase) => FileType.Xlsx,
+        _ => FileType.Unknown,
+    };
+
+    private static string? ResolveContentType(
+        string partName,
+        Dictionary<string, string> overrides,
+        Dictionary<string, string> defaults)
+    {
+        if (overrides.TryGetValue(partName, out var overridden))
+        {
+            return overridden;
+        }
+
+        var extension = Path.GetExtension(partName).TrimStart('.');
+        return defaults.TryGetValue(extension, out var byExtension) ? byExtension : null;
+    }
+
+    /// <summary>The target of the package's officeDocument relationship, as a part name like "/xl/workbook.xml".</summary>
+    private static string? FindOfficeDocumentPart(ZipArchive archive)
+    {
+        var relationships = LoadXml(archive, PackageRelationshipsEntryName);
+        var target = relationships?.Descendants()
+            .Where(element => element.Name.LocalName == "Relationship")
+            .Where(element => ((string?)element.Attribute("Type"))?.EndsWith("/officeDocument", StringComparison.OrdinalIgnoreCase) == true)
+            .Select(element => (string?)element.Attribute("Target"))
+            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+        return target is null ? null : NormalizePartName(target);
+    }
+
+    /// <summary>Normalizes "xl/workbook.xml", "/xl/workbook.xml" and "./xl/workbook.xml" to "/xl/workbook.xml".</summary>
+    private static string NormalizePartName(string? partName)
+    {
+        var name = (partName ?? string.Empty).Trim().Replace('\\', '/');
+        while (name.StartsWith("./", StringComparison.Ordinal))
+        {
+            name = name[2..];
+        }
+
+        return "/" + name.TrimStart('/');
+    }
+
+    /// <summary>Loads a small XML entry safely (no DTDs, no external resolution); null if missing or too large.</summary>
+    private static XDocument? LoadXml(ZipArchive archive, string entryName)
+    {
+        var entry = archive.GetEntry(entryName);
+        if (entry is null || entry.Length > MaxMetadataPartBytes)
+        {
+            return null;
+        }
+
+        using var stream = entry.Open();
+        var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null };
+        using var reader = XmlReader.Create(stream, settings);
+        return XDocument.Load(reader);
     }
 
     /// <summary>

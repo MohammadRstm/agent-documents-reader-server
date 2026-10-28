@@ -33,20 +33,15 @@ public sealed class DocumentIngestionService(
     {
         var limits = limitsOptions.Value;
 
-        // Fail fast when the session is already full; the exact check happens when the results are added,
-        // because only files that produce content count toward the limit.
-        if (session.Documents.ContentDocumentCount >= limits.MaxDocumentsPerSession)
-        {
-            throw SessionLimitExceeded(limits);
-        }
-
+        // The session document limit can only be checked after processing: only files that produce
+        // content count toward it, so even a full session still accepts files that turn out to fail.
         var ingested = new List<IngestedDocument>(files.Count);
         foreach (var file in files)
         {
             ingested.Add(await IngestFileAsync(file, limits, cancellationToken));
         }
 
-        // Checked again atomically: another upload to the same session may have finished meanwhile.
+        // Atomic check-and-add: another upload to the same session may have finished meanwhile.
         if (!session.Documents.TryAdd(ingested, limits.MaxDocumentsPerSession))
         {
             throw SessionLimitExceeded(limits);
