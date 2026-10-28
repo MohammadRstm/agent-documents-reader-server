@@ -59,6 +59,39 @@ public static class ExcelFixtures
         sheet.Cell("A22").Value = "Note: prices exclude VAT.";
     });
 
+    /// <summary>
+    /// A BOQ whose section subtotals and grand total are typed-in values (not formulas) labelled
+    /// "Section N subtotal" in column B, with "$"-formatted amounts under an "Amount (USD)" header.
+    /// Item amounts: 3000 + 8100 + 3600 = 14700 and 17400 + 17500 + 13200 = 48100; grand total 62800.
+    /// </summary>
+    public static byte[] SectionedBoqWithValueSubtotals() => Xlsx(workbook =>
+    {
+        var sheet = workbook.AddWorksheet("BOQ");
+        sheet.Cell("A1").Value = "Bill of Quantities";
+        string[] headers = ["Item", "Description", "Unit", "Qty", "Rate (USD)", "Amount (USD)"];
+        for (var index = 0; index < headers.Length; index++)
+        {
+            Bold(sheet.Cell(4, 1 + index), headers[index]);
+        }
+
+        Bold(sheet.Cell("B5"), "Section 1 - Earthworks");
+        PricedItem(sheet, 6, "1.1", "Excavation", "m3", 100, 30);
+        PricedItem(sheet, 7, "1.2", "Disposal", "m3", 270, 30);
+        PricedItem(sheet, 8, "1.3", "Backfilling", "m3", 120, 30);
+        Bold(sheet.Cell("B9"), "Section 1 subtotal");
+        BoldAmount(sheet.Cell("F9"), 14700);
+
+        Bold(sheet.Cell("B10"), "Section 2 - Concrete");
+        PricedItem(sheet, 11, "2.1", "Foundations", "m3", 58, 300);
+        PricedItem(sheet, 12, "2.2", "Columns", "m3", 70, 250);
+        PricedItem(sheet, 13, "2.3", "Slabs", "m2", 110, 120);
+        Bold(sheet.Cell("B14"), "Section 2 subtotal");
+        BoldAmount(sheet.Cell("F14"), 48100);
+
+        Bold(sheet.Cell("B15"), "Grand Total");
+        BoldAmount(sheet.Cell("F15"), 62800);
+    });
+
     /// <summary>A ZIP package with a [Content_Types].xml that declares the given workbook content type.</summary>
     public static byte[] Package(string workbookContentType, params (string Name, string Content)[] parts)
     {
@@ -163,6 +196,25 @@ public static class ExcelFixtures
         sheet.Cell(row, 6).Value = rate;
         sheet.Cell(row, 7).FormulaA1 = $"D{row}*F{row}";
         sheet.Cell(row, 7).Style.NumberFormat.Format = "#,##0.00";
+    }
+
+    private static void PricedItem(IXLWorksheet sheet, int row, string code, string description, string unit, int quantity, int rate)
+    {
+        sheet.Cell(row, 1).Value = code;
+        sheet.Cell(row, 2).Value = description;
+        sheet.Cell(row, 3).Value = unit;
+        sheet.Cell(row, 4).Value = quantity;
+        sheet.Cell(row, 5).Value = rate;
+        sheet.Cell(row, 5).Style.NumberFormat.Format = "\"$\"#,##0.00";
+        sheet.Cell(row, 6).Value = quantity * rate;
+        sheet.Cell(row, 6).Style.NumberFormat.Format = "\"$\"#,##0.00";
+    }
+
+    private static void BoldAmount(IXLCell cell, int value)
+    {
+        cell.Value = value;
+        cell.Style.Font.Bold = true;
+        cell.Style.NumberFormat.Format = "\"$\"#,##0.00";
     }
 
     private static void Bold(IXLCell cell, string text)
