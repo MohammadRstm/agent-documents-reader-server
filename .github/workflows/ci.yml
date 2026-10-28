@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore DocumentReader.sln
+
+      - name: Build (warnings as errors)
+        run: dotnet build DocumentReader.sln --configuration Release --no-restore -warnaserror
+
+      # Only the deterministic test project runs in CI. The live Claude API evals project is
+      # opt-in and must never run here.
+      - name: Test
+        run: dotnet test tests/DocumentReader.Tests/DocumentReader.Tests.csproj --configuration Release --no-build
