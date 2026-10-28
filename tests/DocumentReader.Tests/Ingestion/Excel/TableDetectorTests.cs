@@ -1,5 +1,7 @@
+using DocumentReader.Api.Configuration;
 using DocumentReader.Api.Ingestion.Excel;
 using DocumentReader.Tests.Infrastructure;
+using Microsoft.Extensions.Options;
 
 namespace DocumentReader.Tests.Ingestion.Excel;
 
@@ -177,7 +179,7 @@ public sealed class TableDetectorTests
 
     private static SheetLayout DetectFirstSheet(byte[] xlsx)
     {
-        var grid = new XlsxGridReader().Read(xlsx, CancellationToken.None);
-        return TableDetector.Detect(grid.Sheets[0]);
+        var grid = new XlsxGridReader(Options.Create(new LimitsOptions())).Read(xlsx, CancellationToken.None);
+        return TableDetector.Detect(grid.Sheets[0], new LimitsOptions());
     }
 }

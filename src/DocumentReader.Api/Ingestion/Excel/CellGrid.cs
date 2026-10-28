@@ -146,9 +146,9 @@ public static class CellText
     }
 
     /// <summary>Removes control characters and bounds the length of a cell's text.</summary>
-    public static string Clean(string text)
+    public static string Clean(string text, int maxLength)
     {
         var cleaned = new string(text.Select(character => char.IsControl(character) ? ' ' : character).ToArray()).Trim();
-        return cleaned.Length > ExcelLimits.MaxCellTextLength ? cleaned[..ExcelLimits.MaxCellTextLength] : cleaned;
+        return cleaned.Length > maxLength ? cleaned[..maxLength] : cleaned;
     }
 }

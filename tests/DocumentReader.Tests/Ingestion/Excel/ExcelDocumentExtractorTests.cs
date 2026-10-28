@@ -1,15 +1,20 @@
 using DocumentReader.Api.Ingestion;
+using DocumentReader.Api.Configuration;
 using DocumentReader.Api.Ingestion.Excel;
 using DocumentReader.Tests.Infrastructure;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace DocumentReader.Tests.Ingestion.Excel;
 
 public sealed class ExcelDocumentExtractorTests
 {
+    private static readonly IOptions<LimitsOptions> Limits = Options.Create(new LimitsOptions());
+
     private readonly ExcelDocumentExtractor _extractor = new(
-        new XlsxGridReader(),
-        new XlsGridReader(),
+        new XlsxGridReader(Limits),
+        new XlsGridReader(Limits),
+        Limits,
         NullLogger<ExcelDocumentExtractor>.Instance);
 
     [Fact]
@@ -156,6 +161,37 @@ public sealed class ExcelDocumentExtractorTests
 
         Assert.NotEqual(DocumentStatus.Indexed, result.Status);
         Assert.Contains(result.Warnings, warning => warning.Contains("time limit"));
+    }
+
+    [Fact]
+    public void Extract_ConfiguredSheetLimit_ReadsOnlyFirstSheetsAndIsPartial()
+    {
+        var limits = Options.Create(new LimitsOptions { MaxSheetsPerWorkbook = 1 });
+        var extractor = new ExcelDocumentExtractor(
+            new XlsxGridReader(limits), new XlsGridReader(limits), limits, NullLogger<ExcelDocumentExtractor>.Instance);
+        var workbook = ExcelFixtures.Xlsx(book =>
+        {
+            book.AddWorksheet("First").Cell("A1").Value = "One";
+            book.AddWorksheet("Second").Cell("A1").Value = "Two";
+        });
+
+        var result = extractor.Extract(workbook, FileType.Xlsx, CancellationToken.None);
+
+        Assert.Equal(DocumentStatus.PartiallyIndexed, result.Status);
+        Assert.Equal(["First"], result.Sheets.Select(sheet => sheet.Name));
+        Assert.Contains(result.Warnings, warning => warning.Contains("sheet limit"));
+    }
+
+    [Fact]
+    public void Extract_ConfiguredUncompressedLimit_IsTooLarge()
+    {
+        var limits = Options.Create(new LimitsOptions { MaxUncompressedWorkbookBytes = 1000 });
+        var extractor = new ExcelDocumentExtractor(
+            new XlsxGridReader(limits), new XlsGridReader(limits), limits, NullLogger<ExcelDocumentExtractor>.Instance);
+
+        var result = extractor.Extract(ExcelFixtures.BillOfQuantities(), FileType.Xlsx, CancellationToken.None);
+
+        Assert.Equal(DocumentStatus.TooLarge, result.Status);
     }
 
     private ExcelExtractionResult Extract(byte[] xlsx) => _extractor.Extract(xlsx, FileType.Xlsx, CancellationToken.None);

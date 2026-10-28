@@ -1,10 +1,12 @@
+using DocumentReader.Api.Configuration;
+
 namespace DocumentReader.Api.Ingestion.Excel;
 
 /// <summary>
-/// Shared bookkeeping for the Excel readers: applies <see cref="ExcelLimits"/> while cells are added
+/// Shared bookkeeping for the Excel readers: applies the Excel limits from <see cref="LimitsOptions"/> while cells are added
 /// and records why reading stopped early.
 /// </summary>
-internal sealed class GridBuilder(CancellationToken cancellationToken)
+internal sealed class GridBuilder(LimitsOptions limits, CancellationToken cancellationToken)
 {
     private readonly List<SheetGrid> _sheets = [];
     private readonly List<string> _warnings = [];
@@ -24,13 +26,13 @@ internal sealed class GridBuilder(CancellationToken cancellationToken)
             return null;
         }
 
-        if (_sheets.Count >= ExcelLimits.MaxSheets)
+        if (_sheets.Count >= limits.MaxSheetsPerWorkbook)
         {
-            Stop($"Only the first {ExcelLimits.MaxSheets} sheets were read (sheet limit).");
+            Stop($"Only the first {limits.MaxSheetsPerWorkbook} sheets were read (sheet limit).");
             return null;
         }
 
-        var sheet = new SheetGrid(CellText.Clean(name), isHidden, stylesAvailable);
+        var sheet = new SheetGrid(CleanText(name), isHidden, stylesAvailable);
         _sheets.Add(sheet);
         return sheet;
     }
@@ -38,16 +40,16 @@ internal sealed class GridBuilder(CancellationToken cancellationToken)
     /// <summary>Adds a cell; returns false when reading must stop.</summary>
     public bool TryAddCell(SheetGrid sheet, GridCell cell)
     {
-        if (cell.Row > ExcelLimits.MaxRowNumber || cell.Column > ExcelLimits.MaxColumnNumber)
+        if (cell.Row > limits.MaxExcelRows || cell.Column > limits.MaxExcelColumns)
         {
             // Cells far outside the normal area are skipped individually rather than stopping everything.
             _skippedOutOfRangeCells = true;
             return true;
         }
 
-        if (_totalCells >= ExcelLimits.MaxCellsPerWorkbook)
+        if (_totalCells >= limits.MaxCellsPerWorkbook)
         {
-            Stop($"Only the first {ExcelLimits.MaxCellsPerWorkbook:N0} cells were read (cell limit).");
+            Stop($"Only the first {limits.MaxCellsPerWorkbook:N0} cells were read (cell limit).");
             return false;
         }
 
@@ -61,12 +63,15 @@ internal sealed class GridBuilder(CancellationToken cancellationToken)
         return true;
     }
 
+    /// <summary>Cleans cell or sheet text and applies the configured length limit.</summary>
+    public string CleanText(string text) => CellText.Clean(text, limits.MaxCellTextLength);
+
     public WorkbookGrid Build()
     {
         if (_skippedOutOfRangeCells)
         {
             IsTruncated = true;
-            _warnings.Add($"Cells beyond row {ExcelLimits.MaxRowNumber:N0} or column {CellAddress.ColumnLetter(ExcelLimits.MaxColumnNumber)} were skipped.");
+            _warnings.Add($"Cells beyond row {limits.MaxExcelRows:N0} or column {CellAddress.ColumnLetter(limits.MaxExcelColumns)} were skipped.");
         }
 
         return new WorkbookGrid(_sheets, _warnings, IsTruncated);

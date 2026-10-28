@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Text;
+using DocumentReader.Api.Configuration;
 using ExcelDataReader;
+using Microsoft.Extensions.Options;
 
 namespace DocumentReader.Api.Ingestion.Excel;
 
@@ -9,7 +11,7 @@ namespace DocumentReader.Api.Ingestion.Excel;
 /// ExcelDataReader returns the values saved in the file (formulas are not recalculated) but not
 /// fonts or formula text, so bold hints are unavailable for .xls.
 /// </summary>
-public sealed class XlsGridReader
+public sealed class XlsGridReader(IOptions<LimitsOptions> limitsOptions)
 {
     static XlsGridReader()
     {
@@ -19,7 +21,7 @@ public sealed class XlsGridReader
 
     public WorkbookGrid Read(byte[] content, CancellationToken cancellationToken)
     {
-        var builder = new GridBuilder(cancellationToken);
+        var builder = new GridBuilder(limitsOptions.Value, cancellationToken);
         using var stream = new MemoryStream(content, writable: false);
         using var reader = ExcelReaderFactory.CreateBinaryReader(stream);
 
@@ -59,7 +61,7 @@ public sealed class XlsGridReader
             row++;
             for (var index = 0; index < reader.FieldCount; index++)
             {
-                var cell = ToGridCell(reader, row, index + 1, index);
+                var cell = ToGridCell(reader, row, index + 1, index, builder);
                 if (cell is not null && !builder.TryAddCell(sheet, cell))
                 {
                     return;
@@ -68,7 +70,7 @@ public sealed class XlsGridReader
         }
     }
 
-    private static GridCell? ToGridCell(IExcelDataReader reader, int row, int column, int index)
+    private static GridCell? ToGridCell(IExcelDataReader reader, int row, int column, int index, GridBuilder builder)
     {
         var value = reader.GetValue(index);
         if (value is null)
@@ -84,7 +86,7 @@ public sealed class XlsGridReader
         switch (value)
         {
             case string text:
-                var cleaned = CellText.Clean(text);
+                var cleaned = builder.CleanText(text);
                 return cleaned.Length == 0 ? null : Create(CellValueKind.Text, cleaned);
 
             case double or float or int or long or decimal:
@@ -104,7 +106,7 @@ public sealed class XlsGridReader
                 return Create(CellValueKind.Text, time.ToString("c", CultureInfo.InvariantCulture));
 
             default:
-                var other = CellText.Clean(Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty);
+                var other = builder.CleanText(Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty);
                 return other.Length == 0 ? null : Create(CellValueKind.Text, other);
         }
     }

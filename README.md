@@ -45,6 +45,15 @@ User Secrets are only loaded in the `Development` environment. Elsewhere, use th
 | `Limits` | `MaxDocumentsPerSession` | 20 | Readable documents (indexed or partially indexed) per session; uploads that would exceed it are rejected (413). Failed files are listed but do not count |
 | `Limits` | `MaxPdfPages` | 500 | Later pages are skipped; status `partiallyIndexed` |
 | `Limits` | `ExtractionTimeoutSeconds` | 30 | Time budget for extracting one file |
+| `Limits` | `MaxUncompressedWorkbookBytes` | 104857600 (100 MB) | .xlsx/.xlsm larger than this once uncompressed get `tooLarge` |
+| `Limits` | `MaxWorkbookPackageEntries` | 10000 | Parts allowed inside an .xlsx/.xlsm package |
+| `Limits` | `MaxWorkbookCompressionRatio` | 100 | Highest compression ratio for a package part over `WorkbookCompressionRatioCheckBytes` |
+| `Limits` | `WorkbookCompressionRatioCheckBytes` | 1048576 (1 MB) | Smaller parts skip the ratio check |
+| `Limits` | `MaxSheetsPerWorkbook` | 100 | Later sheets are skipped |
+| `Limits` | `MaxCellsPerWorkbook` | 1000000 | Later cells are skipped |
+| `Limits` | `MaxExcelRows` / `MaxExcelColumns` | 100000 / 512 | Cells beyond these are skipped |
+| `Limits` | `MaxCellTextLength` | 2000 | Longer cell text is cut off |
+| `Limits` | `MaxMergedRangeCells` | 10000 | Larger merged ranges are not spread over their cells |
 | `Limits` | `MaxModelRoundTripsPerQuestion` | 8 | Agent model round trips per question |
 | `Limits` | `QuestionTimeoutSeconds` | 120 | Time budget per question |
 | `Sessions` | `IdleTimeoutMinutes` | 60 | Session expires after this long without a request |
@@ -61,7 +70,7 @@ User Secrets are only loaded in the `Development` environment. Elsewhere, use th
 - PDFs are read page by page with PdfPig. Text is split into chunks of up to 1500 characters, each tied to its 1-based page number and given a session-unique evidence ID (`E1`, `E2`, ...).
 - PDFs that contain only images (likely scanned) get status `noTextExtracted`; OCR is not supported. Password-protected or unreadable PDFs get status `corrupt`. A file over the size limit gets `tooLarge`, and an empty file gets `empty`.
 - Excel workbooks are read with ClosedXML (.xlsx, .xlsm) or ExcelDataReader (.xls) into one shared cell model. Formula cells use the value saved in the file; formulas are never recalculated and macros are never run. A formula with no saved value is treated as empty and reported in `warnings`. .xls files provide no formatting (bold) hints.
-- Before an .xlsx/.xlsm is opened, its ZIP structure is checked: more than 100 MB uncompressed, more than 10,000 parts, or a part compressed more than 100:1 gives status `tooLarge`. Reading also stops at 100 sheets, 1,000,000 cells, row 100,000 or column 512 (status `partiallyIndexed`).
+- Before an .xlsx/.xlsm is opened, its ZIP structure is checked against `MaxUncompressedWorkbookBytes`, `MaxWorkbookPackageEntries` and `MaxWorkbookCompressionRatio`; a failing package gets status `tooLarge`. Reading also stops at `MaxSheetsPerWorkbook`, `MaxCellsPerWorkbook`, `MaxExcelRows` or `MaxExcelColumns` (status `partiallyIndexed`).
 - Every sheet is scanned for tables, without assuming a fixed layout:
   - Headers can be offset (they need not start at A1) and can span two rows with a merged group label.
   - Repeated header rows are skipped, and two or more blank rows end a table.

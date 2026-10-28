@@ -1,4 +1,6 @@
 using ClosedXML.Excel;
+using DocumentReader.Api.Configuration;
+using Microsoft.Extensions.Options;
 
 namespace DocumentReader.Api.Ingestion.Excel;
 
@@ -7,11 +9,11 @@ namespace DocumentReader.Api.Ingestion.Excel;
 /// value cached in the file (<see cref="IXLCell.CachedValue"/>); formulas are never recalculated and
 /// macros are never run. Bold text and number formats are kept as hints for table detection.
 /// </summary>
-public sealed class XlsxGridReader
+public sealed class XlsxGridReader(IOptions<LimitsOptions> limitsOptions)
 {
     public WorkbookGrid Read(byte[] content, CancellationToken cancellationToken)
     {
-        var builder = new GridBuilder(cancellationToken);
+        var builder = new GridBuilder(limitsOptions.Value, cancellationToken);
         using var stream = new MemoryStream(content, writable: false);
         using var workbook = new XLWorkbook(stream, new LoadOptions { RecalculateAllFormulas = false });
 
@@ -47,7 +49,7 @@ public sealed class XlsxGridReader
     {
         foreach (var cell in worksheet.CellsUsed(XLCellsUsedOptions.Contents))
         {
-            var gridCell = ToGridCell(cell, sheet);
+            var gridCell = ToGridCell(cell, sheet, builder);
             if (gridCell is not null && !builder.TryAddCell(sheet, gridCell))
             {
                 return;
@@ -55,7 +57,7 @@ public sealed class XlsxGridReader
         }
     }
 
-    private static GridCell? ToGridCell(IXLCell cell, SheetGrid sheet)
+    private static GridCell? ToGridCell(IXLCell cell, SheetGrid sheet, GridBuilder builder)
     {
         var formula = cell.HasFormula ? cell.FormulaA1 : null;
         var value = cell.CachedValue;
@@ -79,7 +81,7 @@ public sealed class XlsxGridReader
                 return null;
 
             case XLDataType.Text:
-                var text = CellText.Clean(value.GetText());
+                var text = builder.CleanText(value.GetText());
                 return text.Length == 0 ? null : Create(CellValueKind.Text, text);
 
             case XLDataType.Number:
@@ -102,7 +104,7 @@ public sealed class XlsxGridReader
                 return Create(CellValueKind.Error, value.ToString());
 
             default:
-                return Create(CellValueKind.Text, CellText.Clean(value.ToString()));
+                return Create(CellValueKind.Text, builder.CleanText(value.ToString()));
         }
     }
 }

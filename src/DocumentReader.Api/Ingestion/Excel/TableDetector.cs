@@ -1,3 +1,5 @@
+using DocumentReader.Api.Configuration;
+
 namespace DocumentReader.Api.Ingestion.Excel;
 
 /// <summary>
@@ -20,9 +22,9 @@ public static class TableDetector
     private const int DataLookaheadRows = 3;
     private const double DominantTypeShare = 0.8;
 
-    public static SheetLayout Detect(SheetGrid sheet)
+    public static SheetLayout Detect(SheetGrid sheet, LimitsOptions limits)
     {
-        var context = new SheetContext(sheet);
+        var context = new SheetContext(sheet, limits.MaxMergedRangeCells);
         var tables = new List<DetectedTable>();
         var rowsOutsideTables = new List<int>();
         var warnings = new List<string>();
@@ -162,13 +164,13 @@ public static class TableDetector
         private readonly Dictionary<int, List<(int Column, GridCell Source)>> _mergedFill = [];
         private readonly HashSet<int> _rowsWithHorizontalMerge = [];
 
-        public SheetContext(SheetGrid sheet)
+        public SheetContext(SheetGrid sheet, int maxMergedRangeCells)
         {
             Sheet = sheet;
             foreach (var range in sheet.MergedRanges)
             {
                 var area = (long)(range.LastRow - range.FirstRow + 1) * (range.LastColumn - range.FirstColumn + 1);
-                if (area > ExcelLimits.MaxMergedRangeCells || sheet.GetCell(range.FirstRow, range.FirstColumn) is not { } source)
+                if (area > maxMergedRangeCells || sheet.GetCell(range.FirstRow, range.FirstColumn) is not { } source)
                 {
                     continue;
                 }

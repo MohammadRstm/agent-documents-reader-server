@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Xml;
 using System.Xml.Linq;
+using DocumentReader.Api.Configuration;
 
 namespace DocumentReader.Api.Ingestion.Excel;
 
@@ -62,15 +63,15 @@ public static class OpenXmlPackageInspector
     }
 
     /// <summary>
-    /// Checks the package's declared sizes against <see cref="ExcelLimits"/>. .NET's ZIP reader does
+    /// Checks the package's declared sizes against the workbook limits in <see cref="LimitsOptions"/>. .NET's ZIP reader does
     /// not return more data than an entry declares, so declared sizes are a meaningful bound.
     /// </summary>
-    public static PackageSafety CheckSafety(byte[] content)
+    public static PackageSafety CheckSafety(byte[] content, LimitsOptions limits)
     {
         try
         {
             using var archive = OpenArchive(content);
-            if (archive.Entries.Count > ExcelLimits.MaxPackageEntries)
+            if (archive.Entries.Count > limits.MaxWorkbookPackageEntries)
             {
                 return PackageSafety.TooLarge;
             }
@@ -79,13 +80,13 @@ public static class OpenXmlPackageInspector
             foreach (var entry in archive.Entries)
             {
                 totalUncompressed += entry.Length;
-                if (totalUncompressed > ExcelLimits.MaxUncompressedPackageBytes)
+                if (totalUncompressed > limits.MaxUncompressedWorkbookBytes)
                 {
                     return PackageSafety.TooLarge;
                 }
 
                 var ratio = entry.CompressedLength == 0 ? double.MaxValue : (double)entry.Length / entry.CompressedLength;
-                if (entry.Length > ExcelLimits.CompressionRatioCheckThresholdBytes && ratio > ExcelLimits.MaxCompressionRatio)
+                if (entry.Length > limits.WorkbookCompressionRatioCheckBytes && ratio > limits.MaxWorkbookCompressionRatio)
                 {
                     return PackageSafety.TooLarge;
                 }

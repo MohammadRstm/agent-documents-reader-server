@@ -1,5 +1,7 @@
 using System.Text;
+using DocumentReader.Api.Configuration;
 using ExcelDataReader.Exceptions;
+using Microsoft.Extensions.Options;
 
 namespace DocumentReader.Api.Ingestion.Excel;
 
@@ -19,6 +21,7 @@ public sealed record ExcelExtractionResult(
 public sealed class ExcelDocumentExtractor(
     XlsxGridReader xlsxReader,
     XlsGridReader xlsReader,
+    IOptions<LimitsOptions> limitsOptions,
     ILogger<ExcelDocumentExtractor> logger)
 {
     /// <summary>Evidence text limit from docs/api-contract.md.</summary>
@@ -33,15 +36,16 @@ public sealed class ExcelDocumentExtractor(
             throw new ArgumentOutOfRangeException(nameof(fileType), fileType, "Not an Excel file type.");
         }
 
+        var limits = limitsOptions.Value;
         var warnings = new List<string>();
         if (fileType is FileType.Xlsx or FileType.Xlsm)
         {
-            switch (OpenXmlPackageInspector.CheckSafety(content))
+            switch (OpenXmlPackageInspector.CheckSafety(content, limits))
             {
                 case PackageSafety.TooLarge:
                     return Failed(
                         DocumentStatus.TooLarge,
-                        $"The workbook expands to too much data when unpacked (limit {SizeFormatter.Format(ExcelLimits.MaxUncompressedPackageBytes)}) and was not processed.");
+                        $"The workbook expands to too much data when unpacked (limit {SizeFormatter.Format(limits.MaxUncompressedWorkbookBytes)}) and was not processed.");
                 case PackageSafety.Unreadable:
                     return Failed(DocumentStatus.Corrupt, "The workbook could not be read. It may be damaged.");
             }
@@ -69,10 +73,10 @@ public sealed class ExcelDocumentExtractor(
             return Failed(DocumentStatus.Corrupt, "The workbook could not be read. It may be damaged.");
         }
 
-        return BuildResult(grid, fileType, warnings);
+        return BuildResult(grid, fileType, warnings, limits);
     }
 
-    private static ExcelExtractionResult BuildResult(WorkbookGrid grid, FileType fileType, List<string> warnings)
+    private static ExcelExtractionResult BuildResult(WorkbookGrid grid, FileType fileType, List<string> warnings, LimitsOptions limits)
     {
         warnings.AddRange(grid.Warnings);
         if (fileType == FileType.Xls)
@@ -96,7 +100,7 @@ public sealed class ExcelDocumentExtractor(
                 warnings.Add($"Sheet \"{sheet.Name}\": {sheet.FormulasWithoutCachedValue} formula cell(s) have no saved result and were treated as empty (formulas are not recalculated).");
             }
 
-            var layout = TableDetector.Detect(sheet);
+            var layout = TableDetector.Detect(sheet, limits);
             warnings.AddRange(layout.Warnings);
             foreach (var table in layout.Tables)
             {
