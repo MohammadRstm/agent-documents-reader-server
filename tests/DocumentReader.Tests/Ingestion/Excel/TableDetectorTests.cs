@@ -73,6 +73,30 @@ public sealed class TableDetectorTests
     }
 
     [Fact]
+    public void Detect_ValueSubtotalsLabelledInDescriptionColumn_AreSubtotals()
+    {
+        var table = Assert.Single(DetectFirstSheet(ExcelFixtures.SectionedBoqWithValueSubtotals()).Tables);
+
+        Assert.Equal("A4:F15", table.Range);
+        Assert.Equal(
+            [
+                (5, RowKind.SectionHeader),
+                (6, RowKind.Item),
+                (7, RowKind.Item),
+                (8, RowKind.Item),
+                (9, RowKind.Subtotal),
+                (10, RowKind.SectionHeader),
+                (11, RowKind.Item),
+                (12, RowKind.Item),
+                (13, RowKind.Item),
+                (14, RowKind.Subtotal),
+                (15, RowKind.Total),
+            ],
+            table.Rows.Select(row => (row.RowNumber, row.Kind)));
+        Assert.Equal("USD", table.Columns.Single(column => column.Name == "Amount (USD)").Currency);
+    }
+
+    [Fact]
     public void Detect_TwoRowHeaderWithMergedGroup_CombinesNames()
     {
         var workbook = ExcelFixtures.Xlsx(book =>
