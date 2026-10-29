@@ -84,6 +84,34 @@ public static class PdfFixtures
         return content;
     }
 
+    /// <summary>A valid three-page PDF cut off at <paramref name="fraction"/> of its length (a broken download).</summary>
+    public static byte[] Truncated(double fraction = 0.6)
+    {
+        var pdf = WithPageTexts("Page one", "Page two", "Page three");
+        return pdf[..(int)(pdf.Length * fraction)];
+    }
+
+    /// <summary>A valid PDF whose startxref offset points nowhere; PdfPig recovers by scanning the file.</summary>
+    public static byte[] BrokenStartXref()
+    {
+        var text = Encoding.Latin1.GetString(WithPageTexts("Recoverable text"));
+        var start = text.LastIndexOf("startxref", StringComparison.Ordinal);
+        return Encoding.Latin1.GetBytes(text[..start] + "startxref\n999999\n%%EOF\n");
+    }
+
+    /// <summary>A PDF with its cross-reference table and trailer cut away.</summary>
+    public static byte[] MissingXref()
+    {
+        var text = Encoding.Latin1.GetString(WithPageTexts("Text"));
+        return Encoding.Latin1.GetBytes(text[..text.IndexOf("\nxref", StringComparison.Ordinal)] + "\n%%EOF\n");
+    }
+
+    /// <summary>A structurally valid PDF whose page tree is empty.</summary>
+    public static byte[] ZeroPages() => Encoding.ASCII.GetBytes(
+        "%PDF-1.4\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n" +
+        "2 0 obj << /Type /Pages /Kids [] /Count 0 >> endobj\n" +
+        "trailer << /Root 1 0 R /Size 3 >>\n%%EOF\n");
+
     /// <summary>
     /// A hand-built PDF whose /Encrypt dictionary uses the standard security handler with a user
     /// password that is not empty, so it cannot be opened without the password.

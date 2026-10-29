@@ -63,6 +63,8 @@ builder.Services.AddSingleton<PdfTextExtractor>();
 builder.Services.AddSingleton<XlsxGridReader>();
 builder.Services.AddSingleton<XlsGridReader>();
 builder.Services.AddSingleton<ExcelDocumentExtractor>();
+builder.Services.AddSingleton<IDocumentExtractor, DocumentExtractor>();
+builder.Services.AddSingleton<ExtractionLimiter>();
 
 // Agent tools (read-only, session-scoped)
 builder.Services.AddSingleton<IAgentTool, ListDocumentsTool>();

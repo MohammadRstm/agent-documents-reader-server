@@ -70,11 +70,18 @@ public static class OpenXmlPackageInspector
             var declared = overrides.Values.Concat(defaults.Values).ToList();
             return declared.Select(ToSpreadsheetType).FirstOrDefault(type => type != FileType.Unknown, FileType.Unknown);
         }
-        catch (Exception exception) when (exception is InvalidDataException or XmlException or IOException)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            return FileType.Unknown;
+            // The ZIP structure itself is broken (for example a truncated download). If the raw bytes
+            // still show spreadsheet part names, report it as a damaged workbook rather than as an
+            // unsupported file type; the extractor then rejects it as unreadable.
+            return LooksLikeDamagedSpreadsheet(content) ? FileType.Xlsx : FileType.Unknown;
         }
     }
+
+    /// <summary>True when ZIP local headers in the raw bytes name spreadsheet parts ("xl/...").</summary>
+    private static bool LooksLikeDamagedSpreadsheet(byte[] content) =>
+        content.AsSpan().IndexOf("xl/"u8) >= 0;
 
     private static FileType ToSpreadsheetType(string? contentType) => contentType switch
     {
@@ -168,7 +175,7 @@ public static class OpenXmlPackageInspector
 
             return PackageSafety.Safe;
         }
-        catch (Exception exception) when (exception is InvalidDataException or IOException)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
             return PackageSafety.Unreadable;
         }
@@ -182,7 +189,7 @@ public static class OpenXmlPackageInspector
             using var archive = OpenArchive(content);
             return archive.Entries.Any(entry => entry.Name.Equals("vbaProject.bin", StringComparison.OrdinalIgnoreCase));
         }
-        catch (Exception exception) when (exception is InvalidDataException or IOException)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
             return false;
         }

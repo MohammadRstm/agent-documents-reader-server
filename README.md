@@ -14,6 +14,7 @@ Claude (`claude-sonnet-5-5`) interprets each question and decides which tools to
 - [Setup and running](#setup-and-running)
 - [Configuration](#configuration)
 - [API summary](#api-summary)
+- [Uploads and concurrency](#uploads-and-concurrency)
 - [Agent tools and limits](#agent-tools-and-limits)
 - [Example analytical questions](#example-analytical-questions)
 - [Testing](#testing)
@@ -81,7 +82,23 @@ Both Excel readers fill one shared cell model, and one table detector handles al
 
 Each table row becomes one evidence item, cited as sheet plus cell range (for example `BOQ` `B5:G5`). Rows outside tables, such as titles and notes, are indexed as text.
 
-Per-file results are reported through a status: `indexed`, `partiallyIndexed`, `noTextExtracted`, `empty`, `unsupported`, `corrupt` or `tooLarge`. One bad file never fails the rest of the upload.
+Per-file results are reported through a status (`indexed`, `partiallyIndexed`, `noTextExtracted`, `empty`, `unsupported`, `corrupt`, `tooLarge`) and a warning that says what the user can do:
+
+| Problem | Status | Message (abridged) |
+|---|---|---|
+| Not a PDF or Excel file (text, image, Word, random bytes) and not named like one | `unsupported` | "This file is not a PDF or Excel file … Convert it …" |
+| Named `.xlsx`/`.xlsm`/`.xls` but the content is not readable as a workbook (damaged beyond recognition, or a renamed file) | `corrupt` | "This file is named like an Excel workbook, but its content could not be read as one … save a new copy …" |
+| Named `.pdf` but the content is not readable as a PDF | `corrupt` | "This file is named like a PDF, but its content could not be read as one … Export or download it again …" |
+| Truncated or damaged PDF | `corrupt` | "The PDF could not be read because it appears to be damaged or incomplete …" |
+| Truncated or damaged workbook (.xlsx/.xlsm/.xls) | `corrupt` | "The workbook could not be read … save a new copy …" |
+| Password-protected PDF or Office file | `corrupt` | "… password-protected … Remove the password …" |
+| Scanned PDF (images only) | `noTextExtracted` | "… appears to be scanned … OCR is not supported …" |
+| 0 bytes, PDF with no pages, workbook without data | `empty` | "The file is empty (0 bytes) …" and similar |
+| Over the per-file size limit | `tooLarge` | "The file is larger than the … limit …" |
+| Expands too much when unzipped (ZIP bomb) | `tooLarge` | "The workbook is too large to process once uncompressed …" |
+| Parsing exceeded the time limit | `corrupt` | "The file could not be processed within the time limit …" |
+
+The file name is used only to choose that status and message; it never selects a parser, and `fileType` always reflects the content. One bad, damaged or hanging file never fails, blocks or crashes the rest of the upload. A PDF with a broken cross-reference offset that PdfPig can recover is indexed normally.
 
 ## Setup and running
 
@@ -119,7 +136,7 @@ All settings are in `src/DocumentReader.Api/appsettings.json` and are validated 
 | Setting | Default | Meaning |
 |---|---|---|
 | `SessionCreationRequestsPerMinute` | 10 | `POST /api/sessions` per client IP per minute |
-| `UploadRequestsPerMinute` | 10 | `POST /api/documents` per client IP per minute |
+| `UploadRequestsPerMinute` | 60 | `POST /api/documents` per client IP per minute (the client sends one request per file) |
 | `ChatRequestsPerMinute` | 20 | `POST /api/chat` per client IP per minute |
 | `MaxFileSizeBytes` | 26214400 (25 MB) | A larger file gets status `tooLarge` and is not processed |
 | `MaxFilesPerUpload` | 10 | More files in one request → whole request rejected (413) |
@@ -127,7 +144,8 @@ All settings are in `src/DocumentReader.Api/appsettings.json` and are validated 
 | `MaxDocumentsPerSession` | 20 | Readable documents (`indexed`/`partiallyIndexed`) per session; uploads that would exceed it are rejected (413) |
 | `MaxFailedDocumentsPerSession` | 50 | Failed files kept per session; beyond this they are reported in the upload response but not stored |
 | `MaxPdfPages` | 500 | Later pages are skipped (`partiallyIndexed`) |
-| `ExtractionTimeoutSeconds` | 30 | Time budget for extracting one file |
+| `MaxParallelExtractions` | 4 | Files parsed at the same time across the whole server (all sessions and requests); also capped at the number of processors |
+| `ExtractionTimeoutSeconds` | 30 | Time budget for extracting one file (starts when the file gets a parsing slot) |
 | `MaxUncompressedWorkbookBytes` | 104857600 (100 MB) | `.xlsx`/`.xlsm` larger than this once uncompressed → `tooLarge` |
 | `MaxWorkbookPackageEntries` | 10000 | Maximum parts inside an `.xlsx`/`.xlsm` package |
 | `MaxWorkbookCompressionRatio` | 100 | Maximum compression ratio for a package part larger than `WorkbookCompressionRatioCheckBytes` |
@@ -186,13 +204,16 @@ The full contract, including JSON shapes and error codes, is in [`docs/api-contr
 | `done` | `{ "messageId": "...", "answer": "...", "incomplete": false }`, the authoritative answer; it replaces the draft |
 | `error` | `{ "code": "...", "message": "...", "traceId": "..." }`; the stream ends |
 
-Errors that happen before the stream starts are normal JSON responses:
-- `400` invalid question;
-- `413` request too large;
-- `415` body is not JSON;
-- `409 question_in_progress`;
-- `502 provider_unavailable` when no API key is configured;
-- `429 rate_limited`.
+Errors that happen before the stream starts are normal JSON responses, checked in this order:
+1. `400 session_required` / `404 session_not_found`;
+2. `429 rate_limited`;
+3. `415` body is not JSON, `413` request too large, `400 validation_failed` invalid question;
+4. `502 provider_unavailable` when no API key is configured;
+5. `409 documents_processing` while any upload in the session is still being processed;
+6. `409 no_documents` when the session has no readable (indexed or partially indexed) documents;
+7. `409 question_in_progress` while another answer is streaming.
+
+An answer that is already streaming is not interrupted by a new upload.
 
 **curl examples** (bash; use `curl.exe` in PowerShell):
 
@@ -217,6 +238,16 @@ curl -N -H "X-Session-Id: $SID" -H "Content-Type: application/json" \
 # Conversation history
 curl -H "X-Session-Id: $SID" http://localhost:5080/api/chat/history
 ```
+
+## Uploads and concurrency
+
+- The client sends **one upload request per file**, all in parallel, so each file has its own progress bar. Several uploads to the same session may run at once.
+- Files are parsed concurrently. A **server-wide** limiter shared by all sessions and requests bounds the work to `MaxParallelExtractions` files at a time, also capped at the processor count. Files of one request keep their upload order in the response.
+- Each file has its own `ExtractionTimeoutSeconds`.
+  - A parser that does not stop in time is abandoned after a 5 s grace period, and the file is reported as `corrupt` with a time-limit message.
+  - Its parsing slot stays taken until the abandoned work really ends, so the limit is never exceeded.
+- The per-session document limit is checked and applied atomically, so parallel uploads cannot exceed `MaxDocumentsPerSession`.
+- Each session counts its upload requests that are still being processed. The count rises before the body is read and falls when the request ends, including on errors and cancellation. While it is above zero, `POST /api/chat` returns `409 documents_processing`.
 
 ## Agent tools and limits
 
@@ -265,7 +296,7 @@ These questions exercise the deterministic tools:
 dotnet test tests/DocumentReader.Tests/DocumentReader.Tests.csproj
 ```
 
-Last verified locally: **326/326 passed**.
+Last verified locally (before the upload-robustness changes): **326/326 passed**.
 
 What the tests cover:
 - extraction from synthetic PDF, `.xlsx` and `.xls` fixtures generated in code;
@@ -301,6 +332,8 @@ Security is enforced in code; prompt wording is not relied on as a boundary.
 - **Uploads.**
   - The file type comes from content, not the file name.
   - Size, count, page, cell and time limits apply.
+  - Parsing is bounded server-wide (`MaxParallelExtractions`).
+  - Any unexpected parser failure becomes a per-file `corrupt` status instead of a server error.
   - Uploaded bytes are processed in memory and never written to disk by the app. ASP.NET Core may buffer large multipart parts to temporary files, which it deletes at the end of the request.
   - File names are for display only and never used as paths.
 - **No active content.** Macros are never run (their presence is only reported), and formulas are never evaluated; cached values are read. PDFs are read as text only.
@@ -345,6 +378,8 @@ Security is enforced in code; prompt wording is not relied on as a boundary.
 | `404 session_not_found` | The session expired (idle timeout) or the API restarted; state is in memory. Create a new session |
 | `400 session_required` | The `X-Session-Id` header is missing or not a 43-character base64url ID |
 | `429 rate_limited` | Too many requests from this IP in a minute; wait for the `Retry-After` seconds |
+| Chat returns `409 documents_processing` | An upload in this session is still being processed. Wait until all uploads finish, then ask again |
+| Chat returns `409 no_documents` | No readable document in the session yet (only failed files, or none). Upload at least one readable PDF or Excel file |
 | `Failed to bind to address http://localhost:5080` | The port is in use, often by another instance. Stop it, or run `dotnet run --project src/DocumentReader.Api --launch-profile http -- --urls http://localhost:5081` and update the client proxy |
 | Build fails with `MSB3027`/`MSB3021` "file is locked by DocumentReader.Api" | The API is running from the same output folder. Stop it, or build with `-c Release` |
 | A workbook shows `tooLarge` although the file is small | It expands too much once uncompressed (ZIP safety check); see the `MaxUncompressedWorkbook*` settings |

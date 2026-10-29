@@ -11,9 +11,9 @@ public sealed class LimitsOptions : IValidatableObject
     [Range(1, 10_000)]
     public int SessionCreationRequestsPerMinute { get; set; } = 10;
 
-    /// <summary>Upload requests allowed per client IP address per minute.</summary>
+    /// <summary>Upload requests allowed per client IP address per minute (the client sends one request per file).</summary>
     [Range(1, 10_000)]
-    public int UploadRequestsPerMinute { get; set; } = 10;
+    public int UploadRequestsPerMinute { get; set; } = 60;
 
     /// <summary>Chat questions allowed per client IP address per minute.</summary>
     [Range(1, 10_000)]
@@ -48,6 +48,13 @@ public sealed class LimitsOptions : IValidatableObject
     /// <summary>Only this many pages of a PDF are extracted; later pages are skipped with a warning.</summary>
     [Range(1, 10_000)]
     public int MaxPdfPages { get; set; } = 500;
+
+    /// <summary>
+    /// Files parsed at the same time across the whole server (all sessions and requests). The effective
+    /// value is also capped at the number of processors.
+    /// </summary>
+    [Range(1, 64)]
+    public int MaxParallelExtractions { get; set; } = 4;
 
     /// <summary>Time budget for extracting one file.</summary>
     [Range(1, 600)]

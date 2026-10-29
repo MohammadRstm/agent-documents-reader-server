@@ -1,22 +1,25 @@
 using System.Diagnostics;
 using DocumentReader.Api.Configuration;
 using DocumentReader.Api.Errors;
-using DocumentReader.Api.Ingestion.Excel;
-using DocumentReader.Api.Ingestion.Pdf;
 using DocumentReader.Api.Sessions;
 using Microsoft.Extensions.Options;
 
 namespace DocumentReader.Api.Ingestion;
 
 /// <summary>
-/// Turns uploaded files into session documents and evidence. Each file is processed
-/// independently: a bad file gets its own status and never fails the rest of the batch.
-/// Uploaded bytes are kept in memory only while a file is processed; nothing is written to disk
-/// by this service.
+/// Turns uploaded files into session documents and evidence.
+/// <list type="bullet">
+/// <item>Files of one request are parsed concurrently, bounded server-wide by <see cref="ExtractionLimiter"/>;
+/// results keep the upload order.</item>
+/// <item>Each file is independent: it has its own time limit, and a bad, failing or hanging file gets its
+/// own status and never fails or blocks the others.</item>
+/// <item>Uploaded bytes are kept in memory only while a file is processed; nothing is written to disk by
+/// this service.</item>
+/// </list>
 /// </summary>
 public sealed class DocumentIngestionService(
-    PdfTextExtractor pdfTextExtractor,
-    ExcelDocumentExtractor excelExtractor,
+    IDocumentExtractor extractor,
+    ExtractionLimiter extractionLimiter,
     IOptions<LimitsOptions> limitsOptions,
     TimeProvider timeProvider,
     ILogger<DocumentIngestionService> logger)
@@ -33,15 +36,13 @@ public sealed class DocumentIngestionService(
     {
         var limits = limitsOptions.Value;
 
-        // The session document limit can only be checked after processing: only files that produce
-        // content count toward it, so even a full session still accepts files that turn out to fail.
-        var ingested = new List<IngestedDocument>(files.Count);
-        foreach (var file in files)
-        {
-            ingested.Add(await IngestFileAsync(file, limits, cancellationToken));
-        }
+        // The files of one request share one buffered request body, so their bytes are read one at a time;
+        // parsing then runs concurrently.
+        using var bodyReadLock = new SemaphoreSlim(1, 1);
+        var ingested = await Task.WhenAll(files.Select(file => IngestFileAsync(file, limits, bodyReadLock, cancellationToken)));
 
-        // Atomic check-and-add: another upload to the same session may have finished meanwhile.
+        // The session document limit can only be checked after processing: only files that produce content
+        // count toward it. The check-and-add is atomic, so parallel uploads to one session cannot exceed it.
         if (!session.Documents.TryAdd(
                 ingested, limits.MaxDocumentsPerSession, limits.MaxFailedDocumentsPerSession, out var notStoredIds))
         {
@@ -62,16 +63,20 @@ public sealed class DocumentIngestionService(
         ApiException.PayloadTooLarge(
             $"A session can hold at most {limits.MaxDocumentsPerSession} readable documents. Start a new session to upload more.");
 
-    private async Task<IngestedDocument> IngestFileAsync(IFormFile file, LimitsOptions limits, CancellationToken cancellationToken)
+    private async Task<IngestedDocument> IngestFileAsync(
+        IFormFile file,
+        LimitsOptions limits,
+        SemaphoreSlim bodyReadLock,
+        CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
         var documentId = Guid.NewGuid().ToString("N");
 
-        var outcome = await ProcessFileAsync(file, limits, cancellationToken);
+        var (fileType, outcome) = await ProcessFileAsync(file, limits, bodyReadLock, cancellationToken);
         var document = new DocumentRecord(
             documentId,
             ToDisplayFileName(file.FileName),
-            outcome.FileType,
+            fileType,
             file.Length,
             outcome.Status,
             timeProvider.GetUtcNow(),
@@ -93,70 +98,107 @@ public sealed class DocumentIngestionService(
         return new IngestedDocument(document, outcome.Chunks, outcome.Tables);
     }
 
-    private async Task<FileOutcome> ProcessFileAsync(IFormFile file, LimitsOptions limits, CancellationToken cancellationToken)
+    /// <summary>Never throws except for cancellation: any unexpected failure becomes a per-file status.</summary>
+    private async Task<(FileType FileType, ExtractionResult Outcome)> ProcessFileAsync(
+        IFormFile file,
+        LimitsOptions limits,
+        SemaphoreSlim bodyReadLock,
+        CancellationToken cancellationToken)
     {
-        if (file.Length == 0)
+        var fileType = FileType.Unknown;
+        try
         {
-            return FileOutcome.Failed(FileType.Unknown, DocumentStatus.Empty, "The file is empty.");
+            if (file.Length == 0)
+            {
+                return (fileType, ExtractionResult.Failed(DocumentStatus.Empty, UploadMessages.Empty));
+            }
+
+            if (file.Length > limits.MaxFileSizeBytes)
+            {
+                var header = await ReadAsync(file, FileTypeDetector.HeaderLength, bodyReadLock, cancellationToken);
+                return (FileTypeDetector.DetectFromHeader(header),
+                    ExtractionResult.Failed(DocumentStatus.TooLarge, UploadMessages.TooLarge(limits.MaxFileSizeBytes)));
+            }
+
+            var content = await ReadAsync(file, file.Length, bodyReadLock, cancellationToken);
+            fileType = FileTypeDetector.Detect(content);
+            if (fileType == FileType.Unknown)
+            {
+                return (fileType, UnrecognizedContent(content, file.FileName));
+            }
+
+            var detectedType = fileType;
+            var result = await RunWithTimeLimitAsync(token => extractor.Extract(content, detectedType, token), limits, cancellationToken);
+            return (fileType, result ?? ExtractionResult.Failed(DocumentStatus.Corrupt, UploadMessages.TimedOut));
         }
-
-        if (file.Length > limits.MaxFileSizeBytes)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            var header = await ReadHeaderAsync(file, cancellationToken);
-            return FileOutcome.Failed(
-                FileTypeDetector.DetectFromHeader(header),
-                DocumentStatus.TooLarge,
-                $"The file is larger than the {SizeFormatter.Format(limits.MaxFileSizeBytes)} limit and was not processed.");
-        }
-
-        var content = await ReadAllAsync(file, cancellationToken);
-        var fileType = FileTypeDetector.Detect(content);
-        switch (fileType)
-        {
-            case FileType.Pdf:
-                var pdf = await RunWithTimeLimitAsync(
-                    token => pdfTextExtractor.Extract(content, limits.MaxPdfPages, token),
-                    limits,
-                    cancellationToken);
-                return pdf is null
-                    ? FileOutcome.TimedOut(FileType.Pdf)
-                    : new FileOutcome(FileType.Pdf, pdf.Status, pdf.PageCount, null, [], ToChunks(pdf.Pages), pdf.Warnings);
-
-            case FileType.Xlsx or FileType.Xlsm or FileType.Xls:
-                var excel = await RunWithTimeLimitAsync(
-                    token => excelExtractor.Extract(content, fileType, token),
-                    limits,
-                    cancellationToken);
-                return excel is null
-                    ? FileOutcome.TimedOut(fileType)
-                    : new FileOutcome(fileType, excel.Status, null, excel.Sheets.Count > 0 ? excel.Sheets : null, excel.Tables, excel.Chunks, excel.Warnings);
-
-            default:
-                return FileTypeDetector.IsEncryptedOfficeDocument(content)
-                    ? FileOutcome.Failed(FileType.Unknown, DocumentStatus.Corrupt, "The file is a password-protected Office document and cannot be read.")
-                    : FileOutcome.Failed(FileType.Unknown, DocumentStatus.Unsupported, UnsupportedTypeWarning);
+            logger.LogWarning(exception, "Unexpected failure while processing an uploaded file.");
+            return (fileType, ExtractionResult.Failed(DocumentStatus.Corrupt, UploadMessages.Damaged));
         }
     }
 
     /// <summary>
-    /// Runs a synchronous extractor off the request thread with the per-file time limit. Extractors
-    /// stop cooperatively when the token is cancelled and return what they read so far. If an
-    /// extractor is stuck inside a library call, it is abandoned after a short grace period and
-    /// null is returned.
+    /// Outcome for content that is not a recognizable PDF or Excel file. The file name is used ONLY to
+    /// choose the status and message: a file named .pdf/.xlsx/.xlsm/.xls is most likely a damaged or
+    /// renamed file of that kind, which deserves a more specific message than "not supported". The name
+    /// never selects a parser and never bypasses content-based detection; <c>fileType</c> stays what the
+    /// content says.
     /// </summary>
-    private async Task<T?> RunWithTimeLimitAsync<T>(
-        Func<CancellationToken, T> extract,
+    private static ExtractionResult UnrecognizedContent(byte[] content, string? fileName)
+    {
+        if (FileTypeDetector.IsEncryptedOfficeDocument(content))
+        {
+            return ExtractionResult.Failed(DocumentStatus.Corrupt, UploadMessages.OfficePasswordProtected);
+        }
+
+        return Path.GetExtension(ToDisplayFileName(fileName)).ToLowerInvariant() switch
+        {
+            ".xlsx" or ".xlsm" or ".xls" => ExtractionResult.Failed(DocumentStatus.Corrupt, UploadMessages.NamedLikeWorkbookButUnreadable),
+            ".pdf" => ExtractionResult.Failed(DocumentStatus.Corrupt, UploadMessages.NamedLikePdfButUnreadable),
+            _ => ExtractionResult.Failed(DocumentStatus.Unsupported, UploadMessages.Unsupported),
+        };
+    }
+
+    /// <summary>
+    /// Runs a synchronous extractor under the server-wide limiter with the per-file time limit (which
+    /// starts once a slot is free). Extractors stop cooperatively when the token is cancelled and return
+    /// what they read so far. If one is stuck inside a library call it is abandoned after a short grace
+    /// period and null is returned; its slot stays taken until it really ends.
+    /// </summary>
+    private async Task<ExtractionResult?> RunWithTimeLimitAsync(
+        Func<CancellationToken, ExtractionResult> extract,
         LimitsOptions limits,
         CancellationToken cancellationToken)
-        where T : class
     {
-        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutSource.CancelAfter(limits.ExtractionTimeout);
-        var extractionToken = timeoutSource.Token;
+        // Disposed when the extraction itself ends, not when this method returns: an abandoned
+        // extraction may still read its token afterwards.
+        var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        Task<ExtractionResult> extraction;
+        try
+        {
+            extraction = await extractionLimiter.StartAsync(
+                () =>
+                {
+                    timeoutSource.CancelAfter(limits.ExtractionTimeout);
+                    return extract(timeoutSource.Token);
+                },
+                cancellationToken);
+        }
+        catch
+        {
+            timeoutSource.Dispose();
+            throw;
+        }
 
-        var extraction = Task.Run(() => extract(extractionToken), CancellationToken.None);
+        _ = extraction.ContinueWith(
+            static (_, source) => ((CancellationTokenSource)source!).Dispose(),
+            timeoutSource,
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
 
-        T result;
+        ExtractionResult result;
         try
         {
             result = await extraction.WaitAsync(limits.ExtractionTimeout + HardTimeoutGrace, cancellationToken);
@@ -172,46 +214,21 @@ public sealed class DocumentIngestionService(
         return result;
     }
 
-    private const string UnsupportedTypeWarning =
-        "This file type is not supported. Supported types: PDF and Excel (.xlsx, .xlsm, .xls).";
-
-    /// <summary>The extraction outcome of one file, independent of its type.</summary>
-    private sealed record FileOutcome(
-        FileType FileType,
-        DocumentStatus Status,
-        int? PageCount,
-        IReadOnlyList<SheetSummary>? Sheets,
-        IReadOnlyList<DetectedTable> Tables,
-        IReadOnlyList<ExtractedChunk> Chunks,
-        IReadOnlyList<string> Warnings)
+    private static async Task<byte[]> ReadAsync(IFormFile file, long length, SemaphoreSlim bodyReadLock, CancellationToken cancellationToken)
     {
-        public static FileOutcome Failed(FileType fileType, DocumentStatus status, string warning) =>
-            new(fileType, status, null, null, [], [], [warning]);
+        var content = new byte[Math.Min(length, file.Length)];
+        await bodyReadLock.WaitAsync(cancellationToken);
+        try
+        {
+            await using var stream = file.OpenReadStream();
+            await stream.ReadExactlyAsync(content, cancellationToken);
+        }
+        finally
+        {
+            bodyReadLock.Release();
+        }
 
-        public static FileOutcome TimedOut(FileType fileType) =>
-            Failed(fileType, DocumentStatus.Corrupt, "The file could not be processed within the time limit.");
-    }
-
-    private static List<ExtractedChunk> ToChunks(IReadOnlyList<PdfPageText> pages) =>
-        pages
-            .SelectMany(page => TextChunker.Split(page.Text)
-                .Select(text => new ExtractedChunk(EvidenceKind.TextChunk, new PdfPageLocation(page.PageNumber), text)))
-            .ToList();
-
-    private static async Task<byte[]> ReadAllAsync(IFormFile file, CancellationToken cancellationToken)
-    {
-        var content = new byte[file.Length];
-        await using var stream = file.OpenReadStream();
-        await stream.ReadExactlyAsync(content, cancellationToken);
         return content;
-    }
-
-    private static async Task<byte[]> ReadHeaderAsync(IFormFile file, CancellationToken cancellationToken)
-    {
-        var header = new byte[Math.Min(FileTypeDetector.HeaderLength, file.Length)];
-        await using var stream = file.OpenReadStream();
-        await stream.ReadExactlyAsync(header, cancellationToken);
-        return header;
     }
 
     /// <summary>

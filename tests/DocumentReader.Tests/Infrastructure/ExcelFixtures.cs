@@ -120,6 +120,86 @@ public static class ExcelFixtures
         return Zip(("[Content_Types].xml", contentTypes), ("_rels/.rels", relationships));
     }
 
+    /// <summary>A valid workbook cut in half (the ZIP central directory is missing).</summary>
+    public static byte[] TruncatedXlsx()
+    {
+        var workbook = Xlsx(book => book.AddWorksheet("Data").Cell("A1").Value = "Hello");
+        return workbook[..(workbook.Length / 2)];
+    }
+
+    /// <summary>A workbook package whose content types declare a workbook, but xl/workbook.xml is missing.</summary>
+    public static byte[] XlsxWithoutWorkbookPart() =>
+        RewritePackage(Xlsx(book => book.AddWorksheet("Data").Cell("A1").Value = "Hello"), "xl/workbook.xml", replacement: null);
+
+    /// <summary>A workbook whose first sheet XML is cut off mid-element.</summary>
+    public static byte[] XlsxWithMalformedSheetXml() =>
+        RewritePackage(
+            Xlsx(book => book.AddWorksheet("Data").Cell("A1").Value = "Hello"),
+            "xl/worksheets/sheet1.xml",
+            "<worksheet><sheetData><row r=\"1\"><c r=\"A1\"><v>1</v></c>");
+
+    /// <summary>A minimal Word document package (what a .docx renamed to .xlsx looks like inside).</summary>
+    public static byte[] WordDocument() => Zip(
+        ("[Content_Types].xml",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">" +
+            "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>" +
+            "<Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/></Types>"),
+        ("_rels/.rels",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+            "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/></Relationships>"),
+        ("word/document.xml", "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body/></w:document>"));
+
+    /// <summary>A 1x1 PNG image.</summary>
+    public static byte[] Png() => Convert.FromBase64String(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==");
+
+    /// <summary>Deterministic random bytes.</summary>
+    public static byte[] RandomBytes(int length = 4096)
+    {
+        var bytes = new byte[length];
+        new Random(42).NextBytes(bytes);
+        return bytes;
+    }
+
+    /// <summary>An OLE compound-file signature followed by random bytes (no stream names).</summary>
+    public static byte[] CompoundFileGarbage()
+    {
+        var bytes = RandomBytes();
+        byte[] signature = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+        signature.CopyTo(bytes, 0);
+        return bytes;
+    }
+
+    /// <summary>Copies a package, removing (<paramref name="replacement"/> null) or replacing one part.</summary>
+    private static byte[] RewritePackage(byte[] package, string partName, string? replacement)
+    {
+        using var output = new MemoryStream();
+        using (var target = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true))
+        using (var source = new ZipArchive(new MemoryStream(package), ZipArchiveMode.Read))
+        {
+            foreach (var entry in source.Entries)
+            {
+                if (entry.FullName == partName && replacement is null)
+                {
+                    continue;
+                }
+
+                using var destination = target.CreateEntry(entry.FullName).Open();
+                if (entry.FullName == partName)
+                {
+                    destination.Write(Encoding.UTF8.GetBytes(replacement!));
+                }
+                else
+                {
+                    using var original = entry.Open();
+                    original.CopyTo(destination);
+                }
+            }
+        }
+
+        return output.ToArray();
+    }
+
     public static byte[] Zip(params (string Name, string Content)[] entries)
     {
         using var stream = new MemoryStream();

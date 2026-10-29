@@ -60,6 +60,13 @@ public static class XlsFixtures
         Text(sheet, "A22", "Note: prices exclude VAT.");
     });
 
+    /// <summary>A valid .xls cut in half; the "Workbook" stream name survives, the data does not.</summary>
+    public static byte[] Truncated()
+    {
+        var xls = Xls(workbook => Text(workbook.CreateSheet("Data"), "A1", "Hello"));
+        return xls[..(xls.Length / 2)];
+    }
+
     public static ICell Cell(ISheet sheet, string address)
     {
         var reference = new CellReference(address);

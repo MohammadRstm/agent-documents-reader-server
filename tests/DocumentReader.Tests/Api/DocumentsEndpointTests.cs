@@ -51,11 +51,11 @@ public sealed class DocumentsEndpointTests(DocumentsEndpointTests.SmallLimitsFac
             sessionId,
             ("good.pdf", PdfFixtures.WithPageTexts("Valid content")),
             ("broken.pdf", PdfFixtures.Corrupt()),
-            ("notes.pdf", Encoding.UTF8.GetBytes("plain text pretending to be a PDF")));
+            ("notes.txt", Encoding.UTF8.GetBytes("plain text, not a document")));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var documents = await ReadDocumentsAsync(response);
-        Assert.Equal(["good.pdf", "broken.pdf", "notes.pdf"], documents.Select(d => d.GetProperty("fileName").GetString()));
+        Assert.Equal(["good.pdf", "broken.pdf", "notes.txt"], documents.Select(d => d.GetProperty("fileName").GetString()));
         Assert.Equal(["indexed", "corrupt", "unsupported"], documents.Select(d => d.GetProperty("status").GetString()));
         Assert.Equal("unknown", documents[2].GetProperty("fileType").GetString());
         Assert.All(documents.Skip(1), document => Assert.True(document.GetProperty("warnings").GetArrayLength() > 0));
@@ -209,7 +209,7 @@ public sealed class DocumentsEndpointTests(DocumentsEndpointTests.SmallLimitsFac
         Assert.Equal(HttpStatusCode.OK, (await UploadAsync(sessionId, ("4.pdf", pdf), ("5.pdf", pdf))).StatusCode);
 
         // The session now holds the maximum of 5 readable documents; failed files are still accepted.
-        var failedUpload = await UploadAsync(sessionId, ("broken.pdf", PdfFixtures.Corrupt()), ("notes.pdf", Encoding.UTF8.GetBytes("text")));
+        var failedUpload = await UploadAsync(sessionId, ("broken.pdf", PdfFixtures.Corrupt()), ("notes.txt", Encoding.UTF8.GetBytes("text")));
         Assert.Equal(HttpStatusCode.OK, failedUpload.StatusCode);
         Assert.Equal(["corrupt", "unsupported"], (await ReadDocumentsAsync(failedUpload)).Select(d => d.GetProperty("status").GetString()));
 

@@ -39,12 +39,12 @@ public sealed partial class PdfTextExtractor(ILogger<PdfTextExtractor> logger)
         }
         catch (PdfDocumentEncryptedException)
         {
-            return Failed(DocumentStatus.Corrupt, "The PDF is password-protected and cannot be read.");
+            return Failed(DocumentStatus.Corrupt, UploadMessages.PdfPasswordProtected);
         }
         catch (Exception exception)
         {
             logger.LogInformation(exception, "PDF could not be opened.");
-            return Failed(DocumentStatus.Corrupt, "The PDF could not be read. It may be damaged.");
+            return Failed(DocumentStatus.Corrupt, UploadMessages.PdfDamaged);
         }
 
         using (document)
@@ -57,7 +57,7 @@ public sealed partial class PdfTextExtractor(ILogger<PdfTextExtractor> logger)
             catch (Exception exception)
             {
                 logger.LogInformation(exception, "PDF page count could not be read.");
-                return Failed(DocumentStatus.Corrupt, "The PDF could not be read. It may be damaged.");
+                return Failed(DocumentStatus.Corrupt, UploadMessages.PdfDamaged);
             }
 
             return ExtractPages(document, pageCount, maxPages, cancellationToken);
@@ -72,7 +72,7 @@ public sealed partial class PdfTextExtractor(ILogger<PdfTextExtractor> logger)
     {
         if (pageCount == 0)
         {
-            return new PdfExtractionResult(DocumentStatus.Empty, 0, [], ["The PDF has no pages."]);
+            return new PdfExtractionResult(DocumentStatus.Empty, 0, [], [UploadMessages.PdfNoPages]);
         }
 
         var pagesToRead = Math.Min(pageCount, maxPages);
@@ -168,11 +168,16 @@ public sealed partial class PdfTextExtractor(ILogger<PdfTextExtractor> logger)
 
         List<string> WarningsWithoutText()
         {
+            if (!timedOut && failedPages.Count > 0)
+            {
+                warnings.Insert(0, UploadMessages.PdfDamaged);
+            }
+
             if (!timedOut && failedPages.Count == 0)
             {
                 warnings.Insert(0, imageOnlyPages.Count > 0
-                    ? "No text could be extracted. The PDF appears to be scanned, and OCR is not supported."
-                    : "The PDF contains no text.");
+                    ? UploadMessages.PdfScanned
+                    : UploadMessages.PdfNoText);
             }
 
             return warnings;
