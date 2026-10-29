@@ -2,8 +2,12 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using DocumentReader.Api.Configuration;
 using DocumentReader.Api.Errors;
+using DocumentReader.Api.Ingestion;
+using DocumentReader.Api.Ingestion.Pdf;
 using DocumentReader.Api.Llm;
 using DocumentReader.Api.Sessions;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -46,6 +50,14 @@ builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ISessionStore, InMemorySessionStore>();
 builder.Services.AddHostedService<SessionCleanupService>();
+
+// Ingestion
+builder.Services.AddOptions<FormOptions>()
+    .Configure<IOptions<LimitsOptions>>((form, limits) =>
+        form.MultipartBodyLengthLimit = limits.Value.MaxUploadRequestBytes);
+builder.Services.AddSingleton<UploadFormReader>();
+builder.Services.AddSingleton<PdfTextExtractor>();
+builder.Services.AddSingleton<DocumentIngestionService>();
 
 builder.Services.AddApiRateLimiting();
 

@@ -11,6 +11,7 @@ namespace DocumentReader.Api.Configuration;
 /// </summary>
 public static class RateLimitPolicies
 {
+    public const string SessionCreation = "session-creation";
     public const string Upload = "upload";
     public const string Chat = "chat";
 }
@@ -30,6 +31,8 @@ public static class RateLimitingSetup
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
             options.OnRejected = WriteRejectionAsync;
 
+            options.AddPolicy(RateLimitPolicies.SessionCreation, httpContext =>
+                CreatePerClientLimit(httpContext, limits => limits.SessionCreationRequestsPerMinute));
             options.AddPolicy(RateLimitPolicies.Upload, httpContext =>
                 CreatePerClientLimit(httpContext, limits => limits.UploadRequestsPerMinute));
             options.AddPolicy(RateLimitPolicies.Chat, httpContext =>
