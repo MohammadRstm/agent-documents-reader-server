@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DocumentReader.Api.Agent.Tools;
 using DocumentReader.Api.Configuration;
 using DocumentReader.Api.Errors;
 using DocumentReader.Api.Ingestion;
@@ -61,6 +62,16 @@ builder.Services.AddSingleton<PdfTextExtractor>();
 builder.Services.AddSingleton<XlsxGridReader>();
 builder.Services.AddSingleton<XlsGridReader>();
 builder.Services.AddSingleton<ExcelDocumentExtractor>();
+
+// Agent tools (read-only, session-scoped)
+builder.Services.AddSingleton<IAgentTool, ListDocumentsTool>();
+builder.Services.AddSingleton<IAgentTool, SearchTextTool>();
+builder.Services.AddSingleton<IAgentTool, GetEvidenceTool>();
+builder.Services.AddSingleton<IAgentTool, DescribeTableTool>();
+builder.Services.AddSingleton<IAgentTool, QueryTableTool>();
+builder.Services.AddSingleton<IAgentTool, AggregateTableTool>();
+builder.Services.AddSingleton<IAgentTool, FindDatesTool>();
+builder.Services.AddSingleton<ToolRegistry>();
 builder.Services.AddSingleton<DocumentIngestionService>();
 
 builder.Services.AddApiRateLimiting();
