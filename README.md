@@ -307,14 +307,15 @@ What the tests cover:
 - the agent loop with a scripted fake model: limits, timeouts, cancellation and injection delimiters;
 - every endpoint through `WebApplicationFactory`.
 
-**Live evals (opt-in).** `tests/DocumentReader.Evals` asks the real model five questions over documents with known answers:
-- an exact BOQ total;
-- a milestone date;
-- an unanswerable question;
-- an injection attempt inside a document;
-- a follow-up question.
+**Live evals (opt-in).** `tests/DocumentReader.Evals` asks the real model 38 questions over synthetic documents with known answers. Every grounded answer is also checked for complete citations: each `[E#]` marker in the text must have a validated citation.
+- **Core** (`LiveChatEvals`): BOQ total without subtotals, milestone date, unanswerable question, injection in a PDF, follow-up question.
+- **Calculations** (`CalculationEvals`): typed-in subtotals not double-counted, section and unit filters, item count, mixed currencies never summed, a 120-row table (filtered count and total, exhaustive listing, grand total), legacy `.xls`, a table below notes with unusual headers.
+- **Citations** (`CitationEvals`): the right PDF page, the right worksheet and row, similar terms on different sheets, one fact per file across two files, `[E999]` markers written inside a document, citing an earlier turn.
+- **Document problems** (`DocumentProblemEvals`): scanned, partly scanned and empty PDFs; damaged PDF, damaged `.xlsx` and an image next to a good file; a question only about a damaged file.
+- **Prompt injection** (`PromptInjectionEvals`): an instruction in a spreadsheet cell, a document asking for secrets, a user asking for the system prompt, an instruction in a file name, a fake conversation inside a document.
+- **Evidence quality** (`EvidenceQualityEvals`): date filters, earliest and latest deadlines, conflicting clauses in one document and across two, a missing value not invented, a total that names the item it excludes, a question outside the documents.
 
-They are skipped unless a key is configured (User Secrets or `Anthropic__ApiKey`). They **cost money** and are **never run in CI**. Last verified locally: **5/5 passed** (about 38 s).
+They are skipped unless a key is configured (User Secrets or `Anthropic__ApiKey`). They **cost money** and are **never run in CI**. Model wording varies, so a failure should be read before it is treated as a bug. Last verified locally: the five core evals passed; the other 33 have not been run yet.
 
 ```bash
 dotnet test tests/DocumentReader.Evals/DocumentReader.Evals.csproj
