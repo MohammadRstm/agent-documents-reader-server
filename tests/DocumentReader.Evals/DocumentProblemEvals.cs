@@ -9,13 +9,19 @@ namespace DocumentReader.Evals;
 /// </summary>
 public sealed class DocumentProblemEvals(LiveApiFactory factory) : IClassFixture<LiveApiFactory>
 {
+    // Chat refuses with 409 no_documents while no file is readable, so each eval about one
+    // unreadable file also uploads a readable one.
+    private static readonly (string FileName, byte[] Content) ReadableContract =
+        ("contract.pdf", PdfFixtures.WithPageTexts("Payment terms: 45 days from invoice."));
+
     [LiveFact]
     public async Task ScannedPdf_IsReportedAsUnreadable()
     {
         var client = await StartAsync(
             factory,
             new Dictionary<string, string> { ["scan.pdf"] = "noTextExtracted" },
-            ("scan.pdf", PdfFixtures.ImageOnly(pageCount: 2)));
+            ("scan.pdf", PdfFixtures.ImageOnly(pageCount: 2)),
+            ReadableContract);
 
         var result = await client.AskAsync("What does scan.pdf say about the payment terms?");
 
@@ -44,12 +50,13 @@ public sealed class DocumentProblemEvals(LiveApiFactory factory) : IClassFixture
         var client = await StartAsync(
             factory,
             new Dictionary<string, string> { ["blank.pdf"] = "empty" },
-            ("blank.pdf", PdfFixtures.Blank(pageCount: 2)));
+            ("blank.pdf", PdfFixtures.Blank(pageCount: 2)),
+            ReadableContract);
 
         var result = await client.AskAsync("What is the contract value in blank.pdf?");
 
         Assert.True(ContainsAny(result.Answer, "empty", "no content", "no text", "blank", "nothing"), result.Answer);
-        Assert.Empty(result.Citations);
+        Assert.DoesNotContain(result.Citations, citation => citation.FileName == "blank.pdf");
     }
 
     [LiveFact]

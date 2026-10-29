@@ -315,7 +315,7 @@ What the tests cover:
 - **Prompt injection** (`PromptInjectionEvals`): an instruction in a spreadsheet cell, a document asking for secrets, a user asking for the system prompt, an instruction in a file name, a fake conversation inside a document.
 - **Evidence quality** (`EvidenceQualityEvals`): date filters, earliest and latest deadlines, conflicting clauses in one document and across two, a missing value not invented, a total that names the item it excludes, a question outside the documents.
 
-They are skipped unless a key is configured (User Secrets or `Anthropic__ApiKey`). They **cost money** and are **never run in CI**. Model wording varies, so a failure should be read before it is treated as a bug. Last verified locally: the five core evals passed; the other 33 have not been run yet.
+They are skipped unless a key is configured (User Secrets or `Anthropic__ApiKey`). They **cost money** and are **never run in CI**. Model wording varies, so a failure should be read before it is treated as a bug. Last verified locally: **38/38 passed** (about 4 minutes, one at a time).
 
 ```bash
 dotnet test tests/DocumentReader.Evals/DocumentReader.Evals.csproj
