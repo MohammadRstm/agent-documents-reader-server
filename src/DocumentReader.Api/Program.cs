@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DocumentReader.Api.Agent;
 using DocumentReader.Api.Agent.Tools;
 using DocumentReader.Api.Configuration;
 using DocumentReader.Api.Errors;
@@ -72,6 +73,11 @@ builder.Services.AddSingleton<IAgentTool, QueryTableTool>();
 builder.Services.AddSingleton<IAgentTool, AggregateTableTool>();
 builder.Services.AddSingleton<IAgentTool, FindDatesTool>();
 builder.Services.AddSingleton<ToolRegistry>();
+
+// Chat (agent loop and model provider)
+builder.Services.AddSingleton<IChatModelClient, AnthropicChatModelClient>();
+builder.Services.AddSingleton<AgentRunner>();
+builder.Services.AddSingleton<ChatService>();
 builder.Services.AddSingleton<DocumentIngestionService>();
 
 builder.Services.AddApiRateLimiting();

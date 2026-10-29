@@ -23,6 +23,9 @@ public sealed class Session
     /// <summary>Uploaded documents and their evidence; only reachable through this session.</summary>
     public SessionDocuments Documents { get; } = new();
 
+    /// <summary>Chat history and the one-question-at-a-time guard.</summary>
+    public SessionConversation Conversation { get; } = new();
+
     public DateTimeOffset LastAccessedAt =>
         new(Interlocked.Read(ref _lastAccessedUtcTicks), TimeSpan.Zero);
 
