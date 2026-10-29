@@ -25,8 +25,8 @@ public sealed record DocumentSummary(
         document.Status,
         document.UploadedAt.UtcDateTime,
         document.PageCount,
-        Sheets: null,
-        TableCount: 0,
+        document.Sheets,
+        document.TableCount,
         document.ChunkCount,
         document.Warnings);
 }

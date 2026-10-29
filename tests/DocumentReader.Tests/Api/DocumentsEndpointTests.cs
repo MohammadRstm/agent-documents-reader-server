@@ -15,6 +15,7 @@ public sealed class DocumentsEndpointTests(DocumentsEndpointTests.SmallLimitsFac
     private const int MaxUploadRequestBytes = 200_000;
     private const int MaxFilesPerUpload = 3;
     private const int MaxDocumentsPerSession = 5;
+    private const int MaxFailedDocumentsPerSession = 2;
 
     private readonly HttpClient _client = factory.CreateClient();
 
@@ -70,6 +71,53 @@ public sealed class DocumentsEndpointTests(DocumentsEndpointTests.SmallLimitsFac
         var document = Assert.Single(await ReadDocumentsAsync(response));
         Assert.Equal("pdf", document.GetProperty("fileType").GetString());
         Assert.Equal("indexed", document.GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task Upload_Workbook_ReturnsExcelSummaryWithSheetsAndTables()
+    {
+        var sessionId = await factory.CreateSessionAsync(_client);
+
+        var response = await UploadAsync(sessionId, ("boq.xlsx", ExcelFixtures.BillOfQuantities()));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var document = Assert.Single(await ReadDocumentsAsync(response));
+        Assert.Equal("xlsx", document.GetProperty("fileType").GetString());
+        Assert.Equal("indexed", document.GetProperty("status").GetString());
+        Assert.Equal(JsonValueKind.Null, document.GetProperty("pageCount").ValueKind);
+        Assert.Equal(2, document.GetProperty("tableCount").GetInt32());
+        var sheet = Assert.Single(document.GetProperty("sheets").EnumerateArray());
+        Assert.Equal("BOQ", sheet.GetProperty("name").GetString());
+        Assert.Equal(2, sheet.GetProperty("tableCount").GetInt32());
+        Assert.Equal(16, sheet.GetProperty("rowCount").GetInt32());
+        // 9 BOQ rows + 2 milestone rows + 1 text chunk for the title and note.
+        Assert.Equal(12, document.GetProperty("chunkCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task Upload_LegacyXlsWorkbook_IsIndexedWithTables()
+    {
+        var sessionId = await factory.CreateSessionAsync(_client);
+
+        var response = await UploadAsync(sessionId, ("boq.xls", XlsFixtures.BillOfQuantities()));
+
+        var document = Assert.Single(await ReadDocumentsAsync(response));
+        Assert.Equal("xls", document.GetProperty("fileType").GetString());
+        Assert.Equal("indexed", document.GetProperty("status").GetString());
+        Assert.Equal(2, document.GetProperty("tableCount").GetInt32());
+        Assert.Equal(12, document.GetProperty("chunkCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task Upload_PasswordProtectedOfficeFile_ReturnsCorrupt()
+    {
+        var sessionId = await factory.CreateSessionAsync(_client);
+
+        var response = await UploadAsync(sessionId, ("locked.xlsx", ExcelFixtures.CompoundFile("EncryptedPackage")));
+
+        var document = Assert.Single(await ReadDocumentsAsync(response));
+        Assert.Equal("corrupt", document.GetProperty("status").GetString());
+        Assert.Contains("password", document.GetProperty("warnings")[0].GetString());
     }
 
     [Fact]
@@ -149,6 +197,46 @@ public sealed class DocumentsEndpointTests(DocumentsEndpointTests.SmallLimitsFac
         var secondBatch = await UploadAsync(sessionId, ("4.pdf", pdf), ("5.pdf", pdf), ("6.pdf", pdf));
 
         await ErrorAssertions.AssertErrorAsync(secondBatch, HttpStatusCode.RequestEntityTooLarge, ErrorCodes.PayloadTooLarge);
+        Assert.Equal(3, (await ListDocumentsAsync(sessionId)).Count);
+    }
+
+    [Fact]
+    public async Task Upload_FailedFiles_DoNotCountTowardSessionDocumentLimit()
+    {
+        var sessionId = await factory.CreateSessionAsync(_client);
+        var pdf = PdfFixtures.WithPageTexts("Content");
+        Assert.Equal(HttpStatusCode.OK, (await UploadAsync(sessionId, ("1.pdf", pdf), ("2.pdf", pdf), ("3.pdf", pdf))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await UploadAsync(sessionId, ("4.pdf", pdf), ("5.pdf", pdf))).StatusCode);
+
+        // The session now holds the maximum of 5 readable documents; failed files are still accepted.
+        var failedUpload = await UploadAsync(sessionId, ("broken.pdf", PdfFixtures.Corrupt()), ("notes.pdf", Encoding.UTF8.GetBytes("text")));
+        Assert.Equal(HttpStatusCode.OK, failedUpload.StatusCode);
+        Assert.Equal(["corrupt", "unsupported"], (await ReadDocumentsAsync(failedUpload)).Select(d => d.GetProperty("status").GetString()));
+
+        var readableUpload = await UploadAsync(sessionId, ("6.pdf", pdf));
+        await ErrorAssertions.AssertErrorAsync(readableUpload, HttpStatusCode.RequestEntityTooLarge, ErrorCodes.PayloadTooLarge);
+        Assert.Equal(7, (await ListDocumentsAsync(sessionId)).Count);
+    }
+
+    [Fact]
+    public async Task Upload_FailedFilesBeyondCap_AreReportedButNotStored()
+    {
+        var sessionId = await factory.CreateSessionAsync(_client);
+        var corrupt = PdfFixtures.Corrupt();
+
+        var response = await UploadAsync(sessionId, ("a.pdf", corrupt), ("b.pdf", corrupt), ("c.pdf", corrupt));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var documents = await ReadDocumentsAsync(response);
+        Assert.Equal(3, documents.Count);
+        Assert.All(documents, document => Assert.Equal("corrupt", document.GetProperty("status").GetString()));
+        var lastWarnings = documents[2].GetProperty("warnings").EnumerateArray().Select(w => w.GetString()).ToList();
+        Assert.Contains(lastWarnings, warning => warning!.Contains("not kept in the session"));
+        Assert.Equal(["a.pdf", "b.pdf"], (await ListDocumentsAsync(sessionId)).Select(d => d.GetProperty("fileName").GetString()));
+
+        // Readable files are still accepted once the failed-file cap is reached.
+        var readable = await UploadAsync(sessionId, ("good.pdf", PdfFixtures.WithPageTexts("Content")));
+        Assert.Equal("indexed", Assert.Single(await ReadDocumentsAsync(readable)).GetProperty("status").GetString());
         Assert.Equal(3, (await ListDocumentsAsync(sessionId)).Count);
     }
 
@@ -261,6 +349,7 @@ public sealed class DocumentsEndpointTests(DocumentsEndpointTests.SmallLimitsFac
             settings["Limits:MaxUploadRequestBytes"] = MaxUploadRequestBytes.ToString();
             settings["Limits:MaxFilesPerUpload"] = MaxFilesPerUpload.ToString();
             settings["Limits:MaxDocumentsPerSession"] = MaxDocumentsPerSession.ToString();
+            settings["Limits:MaxFailedDocumentsPerSession"] = MaxFailedDocumentsPerSession.ToString();
             return settings;
         }
     }

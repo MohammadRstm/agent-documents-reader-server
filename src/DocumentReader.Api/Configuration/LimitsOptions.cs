@@ -31,9 +31,19 @@ public sealed class LimitsOptions : IValidatableObject
     [Range(1, 1L << 31)]
     public long MaxUploadRequestBytes { get; set; } = 100L * 1024 * 1024;
 
-    /// <summary>Uploads that would take a session above this many documents are rejected (413).</summary>
+    /// <summary>
+    /// Uploads that would take a session above this many readable documents (indexed or partially
+    /// indexed) are rejected (413). Failed files are listed but do not count.
+    /// </summary>
     [Range(1, 1000)]
     public int MaxDocumentsPerSession { get; set; } = 20;
+
+    /// <summary>
+    /// Failed files (no content) kept per session. Beyond this, failed files are still reported in the
+    /// upload response but are not stored, which bounds memory for sessions that upload many bad files.
+    /// </summary>
+    [Range(0, 10_000)]
+    public int MaxFailedDocumentsPerSession { get; set; } = 50;
 
     /// <summary>Only this many pages of a PDF are extracted; later pages are skipped with a warning.</summary>
     [Range(1, 10_000)]
@@ -42,6 +52,46 @@ public sealed class LimitsOptions : IValidatableObject
     /// <summary>Time budget for extracting one file.</summary>
     [Range(1, 600)]
     public int ExtractionTimeoutSeconds { get; set; } = 30;
+
+    /// <summary>Total uncompressed size of all parts of an .xlsx/.xlsm package (ZIP safety check).</summary>
+    [Range(1, 1L << 32)]
+    public long MaxUncompressedWorkbookBytes { get; set; } = 100L * 1024 * 1024;
+
+    /// <summary>Number of parts (files) inside an .xlsx/.xlsm package.</summary>
+    [Range(1, 1_000_000)]
+    public int MaxWorkbookPackageEntries { get; set; } = 10_000;
+
+    /// <summary>Highest allowed compression ratio for a part larger than <see cref="WorkbookCompressionRatioCheckBytes"/>.</summary>
+    [Range(1, 100_000)]
+    public int MaxWorkbookCompressionRatio { get; set; } = 100;
+
+    /// <summary>Package parts smaller than this (uncompressed) skip the compression-ratio check.</summary>
+    [Range(1, 1L << 32)]
+    public long WorkbookCompressionRatioCheckBytes { get; set; } = 1024 * 1024;
+
+    /// <summary>Only this many sheets of a workbook are read.</summary>
+    [Range(1, 10_000)]
+    public int MaxSheetsPerWorkbook { get; set; } = 100;
+
+    /// <summary>Only this many non-blank cells of a workbook are read.</summary>
+    [Range(1, 100_000_000)]
+    public int MaxCellsPerWorkbook { get; set; } = 1_000_000;
+
+    /// <summary>Cells below this row number are skipped.</summary>
+    [Range(1, 1_048_576)]
+    public int MaxExcelRows { get; set; } = 100_000;
+
+    /// <summary>Cells right of this column number are skipped.</summary>
+    [Range(1, 16_384)]
+    public int MaxExcelColumns { get; set; } = 512;
+
+    /// <summary>Cell text longer than this is cut off.</summary>
+    [Range(1, 32_767)]
+    public int MaxCellTextLength { get; set; } = 2_000;
+
+    /// <summary>Merged ranges with more cells than this are ignored when spreading merged values.</summary>
+    [Range(1, 10_000_000)]
+    public int MaxMergedRangeCells { get; set; } = 10_000;
 
     /// <summary>Maximum model round trips the agent may make while answering one question.</summary>
     [Range(1, 50)]
