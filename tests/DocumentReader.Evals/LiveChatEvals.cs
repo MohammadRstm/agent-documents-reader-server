@@ -1,4 +1,5 @@
 using DocumentReader.Tests.Infrastructure;
+using static DocumentReader.Evals.EvalHelpers;
 
 namespace DocumentReader.Evals;
 
@@ -9,45 +10,43 @@ namespace DocumentReader.Evals;
 /// </summary>
 public sealed class LiveChatEvals(LiveApiFactory factory) : IClassFixture<LiveApiFactory>
 {
-    private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(3);
-
     [LiveFact]
     public async Task BoqTotal_UsesExactItemTotalWithoutSubtotals()
     {
-        var client = await StartAsync(("boq.xlsx", ExcelFixtures.BillOfQuantities()));
+        var client = await StartAsync(factory, ("boq.xlsx", ExcelFixtures.BillOfQuantities()));
 
         var result = await client.AskAsync("What is the total amount of all BOQ line items, excluding subtotals and the grand total row?");
 
-        Assert.True(ContainsAny(result.Answer, "18,000", "18000", "18 000"), result.Answer);
+        Assert.True(ContainsNumber(result.Answer, 18000), result.Answer);
         Assert.DoesNotContain("54,000", result.Answer);
-        Assert.NotEmpty(result.CitedEvidenceIds);
+        AssertGrounded(result);
     }
 
     [LiveFact]
     public async Task MilestoneDate_IsFoundAndCited()
     {
-        var client = await StartAsync(("boq.xlsx", ExcelFixtures.BillOfQuantities()));
+        var client = await StartAsync(factory, ("boq.xlsx", ExcelFixtures.BillOfQuantities()));
 
         var result = await client.AskAsync("When is the handover milestone due?");
 
         Assert.True(ContainsAny(result.Answer, "2027-03-15", "15 March 2027", "March 15, 2027", "15/03/2027"), result.Answer);
-        Assert.NotEmpty(result.CitedEvidenceIds);
+        AssertGrounded(result);
     }
 
     [LiveFact]
     public async Task UnanswerableQuestion_SaysTheDocumentsDoNotSay()
     {
-        var client = await StartAsync(("contract.pdf", PdfFixtures.WithPageTexts("Payment terms: 45 days from invoice.")));
+        var client = await StartAsync(factory, ("contract.pdf", PdfFixtures.WithPageTexts("Payment terms: 45 days from invoice.")));
 
         var result = await client.AskAsync("What is the CEO's annual salary?");
 
-        Assert.True(ContainsAny(result.Answer, "not", "no information", "doesn't", "does not", "couldn't", "could not", "unable"), result.Answer);
+        AssertSaysUnavailable(result.Answer);
     }
 
     [LiveFact]
     public async Task InstructionsInsideDocuments_AreNotFollowed()
     {
-        var client = await StartAsync((
+        var client = await StartAsync(factory, (
             "contract.pdf",
             PdfFixtures.WithPages(
                 ["Payment terms: 45 days from invoice."],
@@ -62,7 +61,7 @@ public sealed class LiveChatEvals(LiveApiFactory factory) : IClassFixture<LiveAp
     [LiveFact]
     public async Task FollowUpQuestion_UsesConversationHistory()
     {
-        var client = await StartAsync(("boq.xlsx", ExcelFixtures.BillOfQuantities()));
+        var client = await StartAsync(factory, ("boq.xlsx", ExcelFixtures.BillOfQuantities()));
         await client.AskAsync("Which BOQ item has the highest amount?");
 
         var result = await client.AskAsync("What is its quantity and unit?");
@@ -70,17 +69,4 @@ public sealed class LiveChatEvals(LiveApiFactory factory) : IClassFixture<LiveAp
         Assert.Contains("50", result.Answer);
         Assert.Contains("m3", result.Answer);
     }
-
-    private async Task<EvalClient> StartAsync(params (string FileName, byte[] Content)[] files)
-    {
-        var httpClient = factory.CreateClient();
-        httpClient.Timeout = Timeout;
-        var client = new EvalClient(httpClient);
-        await client.StartSessionAsync();
-        await client.UploadAsync(files);
-        return client;
-    }
-
-    private static bool ContainsAny(string text, params string[] values) =>
-        values.Any(value => text.Contains(value, StringComparison.OrdinalIgnoreCase));
 }

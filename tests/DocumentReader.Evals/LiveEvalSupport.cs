@@ -49,8 +49,14 @@ public sealed class LiveApiFactory : WebApplicationFactory<Program>
     }
 }
 
+/// <summary>One validated citation: <see cref="Page"/> for PDFs, <see cref="Sheet"/> and <see cref="Range"/> for Excel.</summary>
+public sealed record EvalCitation(string EvidenceId, string FileName, int? Page, string? Sheet, string? Range, string Snippet);
+
 /// <summary>The final answer of one chat request, parsed from the SSE stream.</summary>
-public sealed record EvalAnswer(string Answer, bool Incomplete, IReadOnlyList<string> CitedEvidenceIds, string RawEvents);
+public sealed record EvalAnswer(string Answer, bool Incomplete, IReadOnlyList<EvalCitation> Citations, string RawEvents)
+{
+    public IReadOnlyList<string> CitedEvidenceIds => Citations.Select(citation => citation.EvidenceId).ToList();
+}
 
 /// <summary>Drives the HTTP API the way the browser client does.</summary>
 public sealed class EvalClient(HttpClient client)
@@ -64,7 +70,8 @@ public sealed class EvalClient(HttpClient client)
         _sessionId = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("sessionId").GetString();
     }
 
-    public async Task UploadAsync(params (string FileName, byte[] Content)[] files)
+    /// <summary>Uploads the files in one request and returns each file's processing status by file name.</summary>
+    public async Task<IReadOnlyDictionary<string, string>> UploadAsync(params (string FileName, byte[] Content)[] files)
     {
         using var multipart = new MultipartFormDataContent();
         foreach (var (fileName, content) in files)
@@ -76,6 +83,10 @@ public sealed class EvalClient(HttpClient client)
 
         var response = await SendAsync(HttpMethod.Post, "/api/documents", multipart);
         response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        return body.GetProperty("documents").EnumerateArray().ToDictionary(
+            document => document.GetProperty("fileName").GetString()!,
+            document => document.GetProperty("status").GetString()!);
     }
 
     public async Task<EvalAnswer> AskAsync(string question)
@@ -86,7 +97,7 @@ public sealed class EvalClient(HttpClient client)
         var raw = await response.Content.ReadAsStringAsync();
 
         JsonElement? done = null;
-        var cited = new List<string>();
+        var cited = new List<EvalCitation>();
         foreach (var block in raw.Split("\n\n", StringSplitOptions.RemoveEmptyEntries))
         {
             var lines = block.Split('\n');
@@ -94,7 +105,7 @@ public sealed class EvalClient(HttpClient client)
             var data = JsonDocument.Parse(lines.First(line => line.StartsWith("data: ", StringComparison.Ordinal))[6..]).RootElement;
             if (name == "citations")
             {
-                cited.AddRange(data.GetProperty("citations").EnumerateArray().Select(c => c.GetProperty("evidenceId").GetString()!));
+                cited.AddRange(data.GetProperty("citations").EnumerateArray().Select(ParseCitation));
             }
             else if (name == "done")
             {
@@ -108,6 +119,19 @@ public sealed class EvalClient(HttpClient client)
 
         Assert.True(done.HasValue, "The chat stream ended without a done event.");
         return new EvalAnswer(done.Value.GetProperty("answer").GetString()!, done.Value.GetProperty("incomplete").GetBoolean(), cited, raw);
+    }
+
+    private static EvalCitation ParseCitation(JsonElement citation)
+    {
+        var source = citation.GetProperty("source");
+        var isPdf = source.GetProperty("type").GetString() == "pdfPage";
+        return new EvalCitation(
+            citation.GetProperty("evidenceId").GetString()!,
+            citation.GetProperty("fileName").GetString()!,
+            isPdf ? source.GetProperty("page").GetInt32() : null,
+            isPdf ? null : source.GetProperty("sheet").GetString(),
+            isPdf ? null : source.GetProperty("range").GetString(),
+            citation.GetProperty("snippet").GetString()!);
     }
 
     private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, HttpContent content)
